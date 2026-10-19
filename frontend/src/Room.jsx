@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import Editor from '@monaco-editor/react'
-import { API } from './api'
+import { API, WS_URL } from './api'
 
 const LANGUAGES = ['python', 'java', 'c', 'cpp', 'javascript']
 
@@ -17,7 +17,7 @@ export default function Room({ room, user, token }) {
 
   useEffect(() => {
     const ws = new WebSocket(
-      `ws://localhost:8000/ws/${encodeURIComponent(room)}?token=${token}`
+      `${WS_URL}/ws/${encodeURIComponent(room)}?token=${token}`
     )
     ws.onopen = () => setStatus('connected')
     ws.onmessage = (e) => {

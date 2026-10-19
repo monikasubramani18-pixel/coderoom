@@ -1,4 +1,6 @@
-export const API = 'http://localhost:8000'
+// Deploy pannum bodhu VITE_API_URL set pannunga (e.g. https://api.example.com)
+export const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+export const WS_URL = API.replace(/^http/, 'ws') // http -> ws, https -> wss
 
 export async function api(path, { method = 'GET', body, token } = {}) {
   const res = await fetch(`${API}${path}`, {

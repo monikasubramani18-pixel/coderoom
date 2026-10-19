@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import secrets
 import subprocess
 import uuid
@@ -34,9 +35,18 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
+# Deploy la FRONTEND_URLS=https://coderoom.netlify.app nu .env la set pannunga (comma la multiple)
+ALLOWED_ORIGINS = [
+    o.strip()
+    for o in os.getenv(
+        "FRONTEND_URLS", "http://localhost:5173,http://127.0.0.1:5173"
+    ).split(",")
+    if o.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
