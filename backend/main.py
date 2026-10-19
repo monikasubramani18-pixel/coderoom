@@ -2,15 +2,24 @@ import subprocess
 import uuid
 from collections import defaultdict
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from sqlalchemy import or_
+from sqlalchemy.orm import Session
+
+import models
+from auth import create_token, get_current_user, hash_password, verify_password
+from database import Base, engine, get_db
+
+# Tables auto create (later Alembic migrations use pannalam)
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -19,6 +28,70 @@ app.add_middleware(
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+# ---------- Auth ----------
+class RegisterRequest(BaseModel):
+    username: str = Field(min_length=3, max_length=30)
+    email: str = Field(min_length=5, max_length=255, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    password: str = Field(min_length=6, max_length=72)  # bcrypt limit 72 bytes
+
+
+class LoginRequest(BaseModel):
+    username: str  # username illa email, rendu la edhuvum work aagum
+    password: str = Field(max_length=72)
+
+
+def user_out(user: models.User):
+    return {"id": user.id, "username": user.username, "email": user.email}
+
+
+@app.post("/register", status_code=201)
+def register(req: RegisterRequest, db: Session = Depends(get_db)):
+    exists = (
+        db.query(models.User)
+        .filter(
+            or_(
+                models.User.username == req.username,
+                models.User.email == req.email.lower(),
+            )
+        )
+        .first()
+    )
+    if exists:
+        raise HTTPException(status_code=409, detail="Username illa email already irukku")
+
+    user = models.User(
+        username=req.username,
+        email=req.email.lower(),
+        password_hash=hash_password(req.password),
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return {"token": create_token(user.id), "user": user_out(user)}
+
+
+@app.post("/login")
+def login(req: LoginRequest, db: Session = Depends(get_db)):
+    user = (
+        db.query(models.User)
+        .filter(
+            or_(
+                models.User.username == req.username,
+                models.User.email == req.username.lower(),
+            )
+        )
+        .first()
+    )
+    if not user or not verify_password(req.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Username/password thappu")
+    return {"token": create_token(user.id), "user": user_out(user)}
+
+
+@app.get("/me")
+def me(user: models.User = Depends(get_current_user)):
+    return user_out(user)
 
 
 # ---------- Rooms (WebSocket) ----------
@@ -57,7 +130,6 @@ async def ws_room(websocket: WebSocket, room_id: str):
 
 
 # ---------- Code execution (Docker sandbox) ----------
-# Code stdin vazhiya container ku pogum, host file system touch aagaadhu.
 RUNNERS = {
     "python": ("python:3.12-alpine", "cat > main.py && python main.py"),
     "javascript": ("node:22-alpine", "cat > main.js && node main.js"),
@@ -66,7 +138,7 @@ RUNNERS = {
     "cpp": ("gcc:14", "cat > main.cpp && g++ main.cpp -o main && ./main"),
 }
 
-TIMEOUT_SECONDS = 15  # first run la image pull aagum bodhu konjam neram aagum
+TIMEOUT_SECONDS = 15
 MAX_OUTPUT = 10_000
 
 
@@ -88,10 +160,10 @@ def run_code(req: RunRequest):
     cmd = [
         "docker", "run", "--rm", "-i",
         "--name", name,
-        "--network", "none",          # internet illa
-        "--memory", "256m",           # memory limit
-        "--cpus", "0.5",              # CPU limit
-        "--pids-limit", "64",         # fork bomb thadukka
+        "--network", "none",
+        "--memory", "256m",
+        "--cpus", "0.5",
+        "--pids-limit", "64",
         "--cap-drop", "ALL",
         "--security-opt", "no-new-privileges",
         "--read-only",
