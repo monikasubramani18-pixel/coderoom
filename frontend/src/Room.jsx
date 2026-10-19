@@ -4,7 +4,7 @@ import { API } from './api'
 
 const LANGUAGES = ['python', 'java', 'c', 'cpp', 'javascript']
 
-export default function Room({ room, user }) {
+export default function Room({ room, user, token }) {
   const [code, setCode] = useState('print("Hello CodeRoom")\n')
   const [language, setLanguage] = useState('python')
   const [output, setOutput] = useState('')
@@ -15,7 +15,9 @@ export default function Room({ room, user }) {
   const lastRemote = useRef(null)
 
   useEffect(() => {
-    const ws = new WebSocket(`ws://localhost:8000/ws/${encodeURIComponent(room)}`)
+    const ws = new WebSocket(
+      `ws://localhost:8000/ws/${encodeURIComponent(room)}?token=${token}`
+    )
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data)
       lastRemote.current = msg.code
@@ -24,7 +26,7 @@ export default function Room({ room, user }) {
     }
     wsRef.current = ws
     return () => ws.close()
-  }, [room])
+  }, [room, token])
 
   const send = (newCode, newLang) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -51,12 +53,20 @@ export default function Room({ room, user }) {
     try {
       const res = await fetch(`${API}/run`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({ language, code }),
       })
-      const data = await res.json()
-      setOutput(data.output)
-      setOk(data.ok)
+      if (res.status === 401) {
+        setOutput('Session expire aagiduchu. Thirumba login pannunga.')
+        setOk(false)
+      } else {
+        const data = await res.json()
+        setOutput(data.output)
+        setOk(data.ok)
+      }
     } catch {
       setOutput('Backend connect aagala. uvicorn run aagudha nu paarunga.')
       setOk(false)

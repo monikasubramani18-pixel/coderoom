@@ -2,15 +2,28 @@ import subprocess
 import uuid
 from collections import defaultdict
 
-from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import (
+    Depends,
+    FastAPI,
+    HTTPException,
+    Query,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 import models
-from auth import create_token, get_current_user, hash_password, verify_password
-from database import Base, engine, get_db
+from auth import (
+    create_token,
+    get_current_user,
+    get_user_from_token,
+    hash_password,
+    verify_password,
+)
+from database import Base, SessionLocal, engine, get_db
 
 # Tables auto create (later Alembic migrations use pannalam)
 Base.metadata.create_all(bind=engine)
@@ -119,7 +132,17 @@ manager = ConnectionManager()
 
 
 @app.websocket("/ws/{room_id}")
-async def ws_room(websocket: WebSocket, room_id: str):
+async def ws_room(
+    websocket: WebSocket, room_id: str, token: str | None = Query(default=None)
+):
+    # DB session connection full time hold pannaama, user check pannitu udane close
+    with SessionLocal() as db:
+        user = get_user_from_token(token, db)
+    if not user:
+        await websocket.accept()
+        await websocket.close(code=4401)  # 4401 = unauthorized
+        return
+
     await manager.connect(room_id, websocket)
     try:
         while True:
@@ -148,7 +171,7 @@ class RunRequest(BaseModel):
 
 
 @app.post("/run")
-def run_code(req: RunRequest):
+def run_code(req: RunRequest, user: models.User = Depends(get_current_user)):
     if req.language not in RUNNERS:
         return {"output": f"Unsupported language: {req.language}", "ok": False}
     if len(req.code) > 50_000:
