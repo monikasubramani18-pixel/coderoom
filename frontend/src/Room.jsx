@@ -5,8 +5,9 @@ import { API } from './api'
 const LANGUAGES = ['python', 'java', 'c', 'cpp', 'javascript']
 
 export default function Room({ room, user, token }) {
-  const [code, setCode] = useState('print("Hello CodeRoom")\n')
+  const [code, setCode] = useState('')
   const [language, setLanguage] = useState('python')
+  const [status, setStatus] = useState('connecting') // connecting | connected | disconnected | notfound | unauth
   const [output, setOutput] = useState('')
   const [running, setRunning] = useState(false)
   const [ok, setOk] = useState(true)
@@ -18,14 +19,23 @@ export default function Room({ room, user, token }) {
     const ws = new WebSocket(
       `ws://localhost:8000/ws/${encodeURIComponent(room)}?token=${token}`
     )
+    ws.onopen = () => setStatus('connected')
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data)
       lastRemote.current = msg.code
       setCode(msg.code)
       setLanguage(msg.language)
     }
+    ws.onclose = (e) => {
+      if (e.code === 4404) setStatus('notfound')
+      else if (e.code === 4401) setStatus('unauth')
+      else setStatus('disconnected')
+    }
     wsRef.current = ws
-    return () => ws.close()
+    return () => {
+      ws.onclose = null // cleanup la close aagum bodhu status maaraama irukka
+      ws.close()
+    }
   }, [room, token])
 
   const send = (newCode, newLang) => {
@@ -80,6 +90,41 @@ export default function Room({ room, user, token }) {
     setTimeout(() => setCopied(false), 1500)
   }
 
+  if (status === 'notfound') {
+    return (
+      <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center justify-center gap-4">
+        <p className="text-xl">Room "{room}" illa. Code sariya nu paarunga.</p>
+        <a href="/" className="bg-blue-600 hover:bg-blue-700 px-5 py-2 rounded">
+          Home ku po
+        </a>
+      </div>
+    )
+  }
+
+  if (status === 'unauth') {
+    return (
+      <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center justify-center gap-4">
+        <p className="text-xl">Session expire aagiduchu. Thirumba login pannunga.</p>
+        <button
+          onClick={() => {
+            localStorage.removeItem('token')
+            window.location.href = '/'
+          }}
+          className="bg-blue-600 hover:bg-blue-700 px-5 py-2 rounded"
+        >
+          Login
+        </button>
+      </div>
+    )
+  }
+
+  const statusColor =
+    status === 'connected'
+      ? 'text-green-400'
+      : status === 'connecting'
+      ? 'text-yellow-400'
+      : 'text-red-400'
+
   return (
     <div className="min-h-screen bg-gray-900 text-white p-6">
       <div className="flex items-center justify-between mb-4">
@@ -88,7 +133,8 @@ export default function Room({ room, user, token }) {
             <a href="/" className="hover:underline">CodeRoom</a>
           </h1>
           <p className="text-gray-400 text-sm">
-            Room: {room} · {user.username}
+            Room: {room} · {user.username} ·{' '}
+            <span className={statusColor}>{status}</span>
           </p>
         </div>
         <div className="flex gap-3">
@@ -101,6 +147,7 @@ export default function Room({ room, user, token }) {
           <select
             value={language}
             onChange={handleLanguageChange}
+            disabled={status !== 'connected'}
             className="bg-gray-800 px-3 py-2 rounded"
           >
             {LANGUAGES.map((l) => (
@@ -111,7 +158,7 @@ export default function Room({ room, user, token }) {
           </select>
           <button
             onClick={runCode}
-            disabled={running}
+            disabled={running || status !== 'connected'}
             className="bg-green-600 hover:bg-green-700 disabled:opacity-50 px-5 py-2 rounded font-medium"
           >
             {running ? 'Running...' : '▶ Run'}
@@ -119,13 +166,23 @@ export default function Room({ room, user, token }) {
         </div>
       </div>
 
+      {status === 'disconnected' && (
+        <p className="text-red-400 text-sm mb-2">
+          Connection poiduchu. Page refresh pannunga.
+        </p>
+      )}
+
       <Editor
         height="55vh"
         theme="vs-dark"
         language={language}
         value={code}
         onChange={handleCodeChange}
-        options={{ fontSize: 15, minimap: { enabled: false } }}
+        options={{
+          fontSize: 15,
+          minimap: { enabled: false },
+          readOnly: status !== 'connected',
+        }}
       />
 
       <div className="mt-4">

@@ -1,3 +1,6 @@
+import asyncio
+import json
+import secrets
 import subprocess
 import uuid
 from collections import defaultdict
@@ -14,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 import models
 from auth import (
@@ -107,6 +111,46 @@ def me(user: models.User = Depends(get_current_user)):
     return user_out(user)
 
 
+# ---------- Rooms (REST) ----------
+DEFAULT_CODE = 'print("Hello CodeRoom")\n'
+
+
+@app.post("/rooms", status_code=201)
+def create_room(
+    user: models.User = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    room = models.Room(
+        id=secrets.token_hex(4),  # 8 char code
+        owner_id=user.id,
+        code=DEFAULT_CODE,
+        language="python",
+    )
+    db.add(room)
+    db.commit()
+    return {"id": room.id}
+
+
+@app.get("/rooms")
+def my_rooms(
+    user: models.User = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    rooms = (
+        db.query(models.Room)
+        .filter(models.Room.owner_id == user.id)
+        .order_by(models.Room.updated_at.desc())
+        .limit(20)
+        .all()
+    )
+    return [
+        {
+            "id": r.id,
+            "language": r.language,
+            "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+        }
+        for r in rooms
+    ]
+
+
 # ---------- Rooms (WebSocket) ----------
 class ConnectionManager:
     def __init__(self):
@@ -123,33 +167,101 @@ class ConnectionManager:
             del self.rooms[room_id]
 
     async def broadcast(self, room_id: str, message: str, sender: WebSocket):
-        for conn in list(self.rooms[room_id]):
+        for conn in list(self.rooms.get(room_id, [])):
             if conn is not sender:
                 await conn.send_text(message)
 
 
 manager = ConnectionManager()
 
+# Latest code memory la; DB ku debounce panni save pannrom (ovvoru keystroke ku DB write venaam)
+room_state: dict[str, dict] = {}
+save_tasks: dict[str, asyncio.Task] = {}
+SAVE_DELAY = 1.5
+
+
+def save_room(room_id: str, code: str, language: str):
+    with SessionLocal() as db:
+        room = db.get(models.Room, room_id)
+        if room:
+            room.code = code
+            room.language = language
+            room.updated_at = models.utcnow()
+            db.commit()
+
+
+async def delayed_save(room_id: str):
+    await asyncio.sleep(SAVE_DELAY)
+    state = room_state.get(room_id)
+    if state:
+        await run_in_threadpool(save_room, room_id, state["code"], state["language"])
+
+
+def schedule_save(room_id: str):
+    task = save_tasks.get(room_id)
+    if task:
+        task.cancel()
+    save_tasks[room_id] = asyncio.create_task(delayed_save(room_id))
+
 
 @app.websocket("/ws/{room_id}")
 async def ws_room(
     websocket: WebSocket, room_id: str, token: str | None = Query(default=None)
 ):
-    # DB session connection full time hold pannaama, user check pannitu udane close
+    # DB session connection full time hold pannaama, check pannitu udane close
     with SessionLocal() as db:
         user = get_user_from_token(token, db)
+        room = db.get(models.Room, room_id) if user else None
+        initial = (
+            {"code": room.code, "language": room.language} if room else None
+        )
+
     if not user:
         await websocket.accept()
-        await websocket.close(code=4401)  # 4401 = unauthorized
+        await websocket.close(code=4401)  # unauthorized
+        return
+    if not room:
+        await websocket.accept()
+        await websocket.close(code=4404)  # room illa
         return
 
+    room_state.setdefault(room_id, initial)
     await manager.connect(room_id, websocket)
+    # Puthusa join panravanga ku latest code anuppurom
+    await websocket.send_text(json.dumps(room_state[room_id]))
+
     try:
         while True:
             data = await websocket.receive_text()
+            try:
+                msg = json.loads(data)
+                code, language = msg["code"], msg["language"]
+            except (ValueError, KeyError, TypeError):
+                continue
+            if (
+                not isinstance(code, str)
+                or len(code) > 50_000
+                or language not in RUNNERS
+            ):
+                continue
+
+            room_state[room_id] = {"code": code, "language": language}
             await manager.broadcast(room_id, data, websocket)
+            schedule_save(room_id)
     except WebSocketDisconnect:
+        pass
+    finally:
         manager.disconnect(room_id, websocket)
+        # Last aalu poitta, udane save pannitu memory clean
+        if not manager.rooms.get(room_id):
+            task = save_tasks.pop(room_id, None)
+            if task:
+                task.cancel()
+            state = room_state.pop(room_id, None)
+            if state:
+                await run_in_threadpool(
+                    save_room, room_id, state["code"], state["language"]
+                )
 
 
 # ---------- Code execution (Docker sandbox) ----------

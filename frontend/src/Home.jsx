@@ -1,14 +1,32 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { api } from './api'
 
-function randomRoomId() {
-  return Math.random().toString(36).slice(2, 8)
-}
-
-export default function Home({ user, onLogout }) {
+export default function Home({ user, token, onLogout }) {
   const [code, setCode] = useState('')
+  const [rooms, setRooms] = useState([])
+  const [error, setError] = useState('')
+  const [creating, setCreating] = useState(false)
+
+  useEffect(() => {
+    api('/rooms', { token })
+      .then(setRooms)
+      .catch(() => {})
+  }, [token])
 
   const goToRoom = (id) => {
     window.location.href = `/?room=${encodeURIComponent(id)}`
+  }
+
+  const createRoom = async () => {
+    setError('')
+    setCreating(true)
+    try {
+      const data = await api('/rooms', { method: 'POST', token })
+      goToRoom(data.id)
+    } catch (e) {
+      setError(e.message)
+      setCreating(false)
+    }
   }
 
   return (
@@ -30,14 +48,16 @@ export default function Home({ user, onLogout }) {
             Room create panni link ah friend kitta share pannunga.
           </p>
           <button
-            onClick={() => goToRoom(randomRoomId())}
-            className="bg-green-600 hover:bg-green-700 px-5 py-2 rounded font-medium"
+            onClick={createRoom}
+            disabled={creating}
+            className="bg-green-600 hover:bg-green-700 disabled:opacity-50 px-5 py-2 rounded font-medium"
           >
-            Create Room
+            {creating ? 'Creating...' : 'Create Room'}
           </button>
+          {error && <p className="text-red-400 text-sm mt-3">{error}</p>}
         </div>
 
-        <div className="bg-gray-800/50 p-6 rounded-lg">
+        <div className="bg-gray-800/50 p-6 rounded-lg mb-6">
           <h2 className="text-xl font-semibold mb-2">Room join pannunga</h2>
           <div className="flex gap-3">
             <input
@@ -55,6 +75,32 @@ export default function Home({ user, onLogout }) {
             </button>
           </div>
         </div>
+
+        {rooms.length > 0 && (
+          <div className="bg-gray-800/50 p-6 rounded-lg">
+            <h2 className="text-xl font-semibold mb-3">Un rooms</h2>
+            <ul className="divide-y divide-gray-700">
+              {rooms.map((r) => (
+                <li key={r.id} className="flex items-center justify-between py-2">
+                  <div>
+                    <span className="font-mono">{r.id}</span>
+                    <span className="ml-3 text-xs text-gray-400">
+                      {r.language}
+                      {r.updated_at &&
+                        ` · ${new Date(r.updated_at).toLocaleString()}`}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => goToRoom(r.id)}
+                    className="text-blue-400 hover:underline text-sm"
+                  >
+                    Open
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
     </div>
   )

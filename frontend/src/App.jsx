@@ -45,7 +45,7 @@ function App() {
 
   if (!token || !user) return <AuthPage onAuth={handleAuth} />
   if (room) return <Room room={room} user={user} token={token} />
-  return <Home user={user} onLogout={logout} />
+  return <Home user={user} token={token} onLogout={logout} />
 }
 
 export default App
