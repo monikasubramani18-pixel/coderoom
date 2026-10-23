@@ -1,3 +1,4 @@
+"""Password hashing, JWT creation and authentication dependencies."""
 import os
 from datetime import datetime, timedelta, timezone
 
@@ -15,12 +16,12 @@ load_dotenv()
 
 SECRET_KEY = os.getenv("SECRET_KEY")
 if not SECRET_KEY:
-    raise RuntimeError(".env la SECRET_KEY illa")
+    raise RuntimeError("SECRET_KEY is not set. Add it to backend/.env")
 
 ALGORITHM = "HS256"
-TOKEN_HOURS = 24
+TOKEN_LIFETIME_HOURS = 24
 
-bearer = HTTPBearer()
+bearer_scheme = HTTPBearer()
 
 
 def hash_password(password: str) -> str:
@@ -34,13 +35,13 @@ def verify_password(password: str, password_hash: str) -> bool:
 def create_token(user_id: int) -> str:
     payload = {
         "sub": str(user_id),
-        "exp": datetime.now(timezone.utc) + timedelta(hours=TOKEN_HOURS),
+        "exp": datetime.now(timezone.utc) + timedelta(hours=TOKEN_LIFETIME_HOURS),
     }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 
 def get_user_from_token(token: str | None, db: Session) -> User | None:
-    """Valid token na User return pannum, illana None."""
+    """Return the user for a valid token, otherwise None."""
     if not token:
         return None
     try:
@@ -52,10 +53,10 @@ def get_user_from_token(token: str | None, db: Session) -> User | None:
 
 
 def get_current_user(
-    creds: HTTPAuthorizationCredentials = Depends(bearer),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db: Session = Depends(get_db),
 ) -> User:
-    user = get_user_from_token(creds.credentials, db)
-    if not user:
+    user = get_user_from_token(credentials.credentials, db)
+    if user is None:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
     return user

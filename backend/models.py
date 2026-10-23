@@ -1,11 +1,20 @@
+"""SQLAlchemy models."""
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 
 from database import Base
 
 
-def utcnow():
+def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
@@ -22,9 +31,25 @@ class User(Base):
 class Room(Base):
     __tablename__ = "rooms"
 
-    id = Column(String(16), primary_key=True)  # random short code (URL la varum)
+    id = Column(String(16), primary_key=True)  # short random code used in room URLs
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    title = Column(String(80), nullable=False, default="Untitled room")
     code = Column(Text, nullable=False, default="")
     language = Column(String(20), nullable=False, default="python")
+    question = Column(Text, nullable=False, default="")  # problem statement shown to everyone
+    notes = Column(Text, nullable=False, default="")  # private to the host
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow)
+
+
+class Feedback(Base):
+    __tablename__ = "feedback"
+    __table_args__ = (UniqueConstraint("room_id", "author_id", name="uq_feedback_room_author"),)
+
+    id = Column(Integer, primary_key=True)
+    room_id = Column(String(16), ForeignKey("rooms.id"), nullable=False, index=True)
+    author_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    rating = Column(Integer, nullable=False)  # 1-5
+    comment = Column(Text, nullable=False, default="")
     created_at = Column(DateTime(timezone=True), default=utcnow)
     updated_at = Column(DateTime(timezone=True), default=utcnow)
