@@ -3,6 +3,7 @@ import { api } from './api'
 import AuthPage from './AuthPage'
 import ErrorBoundary from './components/ErrorBoundary'
 import Home from './Home'
+import { ToastProvider } from './components/Toast'
 import { ThemeProvider } from './theme'
 
 // The room screen pulls in the Monaco editor, so load it only when needed.
@@ -63,7 +64,9 @@ export default function App() {
   return (
     <ErrorBoundary>
       <ThemeProvider>
-        <Routes />
+        <ToastProvider>
+          <Routes />
+        </ToastProvider>
       </ThemeProvider>
     </ErrorBoundary>
   )

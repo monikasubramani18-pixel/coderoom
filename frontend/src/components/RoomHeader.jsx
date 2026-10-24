@@ -13,7 +13,17 @@ const STATUS = {
   disconnected: { label: 'Offline', icon: WifiOff, tone: 'text-danger' },
 }
 
-export default function RoomHeader({ roomId, title, isHost, onTitleChange, users, timer, onTimerAction, status }) {
+export default function RoomHeader({
+  roomId,
+  title,
+  isHost,
+  onTitleChange,
+  users,
+  timer,
+  onTimerAction,
+  onTimerExpire,
+  status,
+}) {
   const [copied, setCopied] = useState(false)
   const { label, icon: StatusIcon, tone } = STATUS[status] || STATUS.disconnected
   const visibleUsers = users.slice(0, 4)
@@ -61,7 +71,7 @@ export default function RoomHeader({ roomId, title, isHost, onTitleChange, users
             <span className="ml-2 text-xs text-muted">+{users.length - visibleUsers.length}</span>
           )}
         </div>
-        <Timer timer={timer} isHost={isHost} onAction={onTimerAction} />
+        <Timer timer={timer} isHost={isHost} onAction={onTimerAction} onExpire={onTimerExpire} />
         <button onClick={copyInviteLink} className={ghostButton}>
           {copied ? <Check className="h-4 w-4 text-success" /> : <Link2 className="h-4 w-4" />}
           {copied ? 'Copied' : 'Invite'}

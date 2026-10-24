@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowRight, CalendarDays, Flame, FolderOpen, LogOut, Plus, Target, Trash2, Trophy } from 'lucide-react'
+import { ArrowRight, CalendarDays, Check, Flame, FolderOpen, Link2, LogOut, Plus, Target, Trash2, Trophy } from 'lucide-react'
 import { api } from './api'
+import ActivityHeatmap from './components/ActivityHeatmap'
 import Avatar from './components/Avatar'
 import Brand from './components/Brand'
 import ConfirmDialog from './components/ConfirmDialog'
+import Leaderboard from './components/Leaderboard'
 import ProblemList from './components/ProblemList'
 import ThemeToggle from './components/ThemeToggle'
+import TopicProgress from './components/TopicProgress'
 import { timeAgo } from './lib/format'
 import { languageMeta } from './lib/languages'
 import { DIFFICULTY_STYLES, PROBLEMS, buildQuestionText, computeStreak } from './lib/problems'
@@ -57,6 +60,7 @@ export default function Home({ user, token, onLogout }) {
   const [creating, setCreating] = useState(false)
   const [startingProblem, setStartingProblem] = useState(false)
   const [roomToDelete, setRoomToDelete] = useState(null)
+  const [copiedRoomId, setCopiedRoomId] = useState(null)
 
   useEffect(() => {
     api('/rooms', { token })
@@ -116,6 +120,12 @@ export default function Home({ user, token, onLogout }) {
       setError(err.message)
       setStartingProblem(false)
     }
+  }
+
+  const copyRoomLink = async (room) => {
+    await navigator.clipboard.writeText(`${window.location.origin}/?room=${room.id}`)
+    setCopiedRoomId(room.id)
+    setTimeout(() => setCopiedRoomId(null), 1500)
   }
 
   const joinRoom = (event) => {
@@ -183,6 +193,22 @@ export default function Home({ user, token, onLogout }) {
           <button onClick={() => startPractice(dailyProblem)} disabled={startingProblem} className={primaryButton}>
             {solvedIds.has(dailyProblem.id) ? 'Solve again' : 'Solve now'}
           </button>
+        </section>
+
+        <div className="grid gap-6 lg:grid-cols-5">
+          <section className={`${card} p-5 lg:col-span-3`} aria-label="Activity">
+            <h2 className="mb-4 font-semibold">Your activity</h2>
+            <ActivityHeatmap timestamps={progress.activity} />
+          </section>
+          <section className={`${card} p-5 lg:col-span-2`} aria-label="Leaderboard">
+            <h2 className="mb-3 font-semibold">Leaderboard</h2>
+            <Leaderboard token={token} />
+          </section>
+        </div>
+
+        <section className={`${card} p-5`} aria-label="Progress by topic">
+          <h2 className="mb-4 font-semibold">Progress by topic</h2>
+          <TopicProgress solvedIds={solvedIds} />
         </section>
 
         {error && (
@@ -259,6 +285,14 @@ export default function Home({ user, token, onLogout }) {
                     </button>
                     <button onClick={() => goToRoom(room.id)} className={ghostButton}>
                       Open
+                    </button>
+                    <button
+                      onClick={() => copyRoomLink(room)}
+                      className={iconButton}
+                      aria-label={`Copy invite link for ${room.title}`}
+                      title="Copy invite link"
+                    >
+                      {copiedRoomId === room.id ? <Check className="h-4 w-4 text-success" /> : <Link2 className="h-4 w-4" />}
                     </button>
                     <button
                       onClick={() => setRoomToDelete(room)}

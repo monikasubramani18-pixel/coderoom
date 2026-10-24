@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { CheckCircle2, FlaskConical, Loader2, XCircle } from 'lucide-react'
+import { formatTime } from '../lib/format'
 import { primaryButton } from '../lib/ui'
 
 const VERDICTS = {
@@ -77,6 +78,32 @@ function TestsView({ problem, result, error, running, onRun }) {
   )
 }
 
+/** Everything that was run in this room during the current visit, newest first. */
+function HistoryView({ history }) {
+  if (history.length === 0) {
+    return <p className="flex-1 p-4 text-sm text-muted">Runs and test results from everyone in the room show up here.</p>
+  }
+  return (
+    <ul className="flex-1 space-y-2 overflow-y-auto p-4">
+      {history.map((entry) => (
+        <li key={entry.id} className="rounded-md border border-line">
+          <details>
+            <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm">
+              {entry.ok ? <CheckCircle2 className="h-4 w-4 text-success" /> : <XCircle className="h-4 w-4 text-danger" />}
+              <span className="text-ink">{entry.label}</span>
+              <span className="text-xs text-muted">by {entry.by}</span>
+              <span className="ml-auto text-xs text-muted">{formatTime(entry.ts)}</span>
+            </summary>
+            {entry.output && (
+              <pre className="whitespace-pre-wrap border-t border-line p-3 font-mono text-xs text-ink">{entry.output}</pre>
+            )}
+          </details>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 export default function Console({
   result,
   error,
@@ -88,6 +115,7 @@ export default function Console({
   testsError,
   testsRunning,
   onRunTests,
+  history = [],
 }) {
   const [tab, setTab] = useState('output')
 
@@ -110,7 +138,7 @@ export default function Console({
   return (
     <section className="flex h-64 shrink-0 flex-col border-t border-line bg-panel">
       <div className="flex items-center justify-between border-b border-line">
-        <div className="flex">
+        <div className="flex overflow-x-auto">
           <button className={tabClass('output')} onClick={() => setTab('output')}>
             Output
           </button>
@@ -122,6 +150,9 @@ export default function Console({
               Tests
             </button>
           )}
+          <button className={tabClass('history')} onClick={() => setTab('history')}>
+            History{history.length > 0 && ` (${history.length})`}
+          </button>
         </div>
         {tab === 'output' && result && !running && (
           <div className="flex items-center gap-3 pr-4 text-xs text-muted">
@@ -137,6 +168,8 @@ export default function Console({
 
       {tab === 'tests' && problem ? (
         <TestsView problem={problem} result={testResult} error={testsError} running={testsRunning} onRun={onRunTests} />
+      ) : tab === 'history' ? (
+        <HistoryView history={history} />
       ) : tab === 'input' ? (
         <textarea
           value={stdin}

@@ -1,11 +1,15 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Editor from '@monaco-editor/react'
-import { Check, Copy, Download, FileDown, FlaskConical, Loader2, Play } from 'lucide-react'
+import { Check, Command, Copy, Download, FileDown, FlaskConical, Loader2, Play } from 'lucide-react'
 import { WS_URL, api } from './api'
+import CommandPalette from './components/CommandPalette'
 import Console from './components/Console'
+import EditorSettings from './components/EditorSettings'
 import ProblemPicker from './components/ProblemPicker'
 import RoomHeader from './components/RoomHeader'
 import SidePanel from './components/SidePanel'
+import { useToast } from './components/Toast'
+import { useEditorSettings } from './lib/editorSettings'
 import { exportSession } from './lib/exportSession'
 import { LANGUAGES, TEMPLATES, languageMeta } from './lib/languages'
 import { buildQuestionText, getProblem } from './lib/problems'
@@ -14,7 +18,8 @@ import useDocumentTitle from './lib/useDocumentTitle'
 import { useTheme } from './theme'
 
 const MAX_RECONNECT_ATTEMPTS = 5
-const RUN_SHORTCUT = /Mac/.test(navigator.userAgent) ? '⌘' : 'Ctrl'
+const MAX_HISTORY = 20
+const MOD_KEY = /Mac/.test(navigator.userAgent) ? '⌘' : 'Ctrl'
 
 function FullScreenMessage({ title, actionLabel, onAction, href }) {
   return (
@@ -34,7 +39,9 @@ function FullScreenMessage({ title, actionLabel, onAction, href }) {
 }
 
 export default function Room({ roomId, token, onSessionExpired }) {
-  const { theme } = useTheme()
+  const { theme, toggleTheme } = useTheme()
+  const { notify } = useToast()
+  const [editorSettings, setEditorSettings] = useEditorSettings()
 
   const [status, setStatus] = useState('connecting') // connecting | connected | reconnecting | disconnected | not_found | unauthorized
   const [me, setMe] = useState(null)
@@ -53,13 +60,18 @@ export default function Room({ roomId, token, onSessionExpired }) {
   const [testResult, setTestResult] = useState(null)
   const [testsError, setTestsError] = useState('')
   const [testsRunning, setTestsRunning] = useState(false)
+  const [history, setHistory] = useState([])
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
   const [copied, setCopied] = useState(false)
 
   const socketRef = useRef(null)
   const lastRemoteCode = useRef(null)
   const questionTimer = useRef(null)
   const runRef = useRef(null)
+  const meRef = useRef(null) // latest identity, readable from the socket handlers
+  const usersRef = useRef(null) // previous presence list, used to announce joins and leaves
+  const previousStatus = useRef('connecting')
 
   const problem = getProblem(problemId)
   useDocumentTitle(title)
@@ -69,10 +81,16 @@ export default function Room({ roomId, token, onSessionExpired }) {
     let attempts = 0
     let disposed = false
     let retryTimer
+    let historySeq = 0
+
+    const addHistory = (entry) =>
+      setHistory((current) => [{ id: `h${historySeq++}`, ts: Date.now(), ...entry }, ...current].slice(0, MAX_HISTORY))
 
     const handleMessage = (message) => {
       switch (message.type) {
         case 'init':
+          meRef.current = message.you
+          usersRef.current = message.users
           setMe(message.you)
           setTitle(message.room.title)
           lastRemoteCode.current = message.room.code
@@ -100,9 +118,18 @@ export default function Room({ roomId, token, onSessionExpired }) {
         case 'title':
           setTitle(message.title)
           break
-        case 'presence':
+        case 'presence': {
+          const previous = usersRef.current || []
+          const before = new Set(previous.map((u) => u.id))
+          const after = new Set(message.users.map((u) => u.id))
+          message.users
+            .filter((u) => !before.has(u.id) && u.id !== meRef.current?.id)
+            .forEach((u) => notify(`${u.username} joined the room`))
+          previous.filter((u) => !after.has(u.id)).forEach((u) => notify(`${u.username} left the room`))
+          usersRef.current = message.users
           setUsers(message.users)
           break
+        }
         case 'chat':
           setChat((current) => [...current.slice(-49), message.message])
           break
@@ -114,14 +141,37 @@ export default function Room({ roomId, token, onSessionExpired }) {
             receivedAt: Date.now(),
           })
           break
-        case 'run_result':
+        case 'run_result': {
+          const run = message.result
           setRunError('')
-          setResult(message.result)
+          setResult(run)
+          addHistory({
+            kind: 'run',
+            label: run.ok ? 'Run succeeded' : 'Run failed',
+            ok: run.ok,
+            by: run.by,
+            output: run.output,
+          })
+          if (run.by !== meRef.current?.username) notify(`${run.by} ran the code`, run.ok ? 'info' : 'warning')
           break
-        case 'tests_result':
+        }
+        case 'tests_result': {
+          const tests = message.result
+          const allPassed = tests.passed === tests.total
           setTestsError('')
-          setTestResult(message.result)
+          setTestResult(tests)
+          addHistory({
+            kind: 'tests',
+            label: `Tests: ${tests.passed} / ${tests.total} passed`,
+            ok: allPassed,
+            by: tests.by,
+            output: '',
+          })
+          if (tests.by !== meRef.current?.username) {
+            notify(`${tests.by} ran tests: ${tests.passed} / ${tests.total} passed`, allPassed ? 'success' : 'info')
+          }
           break
+        }
         default:
           break
       }
@@ -158,9 +208,30 @@ export default function Room({ roomId, token, onSessionExpired }) {
       clearTimeout(retryTimer)
       socketRef.current?.close()
     }
-  }, [roomId, token])
+  }, [roomId, token, notify])
 
   useEffect(() => () => clearTimeout(questionTimer.current), [])
+
+  // Tell the user when the connection drops and when it comes back.
+  useEffect(() => {
+    const previous = previousStatus.current
+    previousStatus.current = status
+    if (status === 'reconnecting' && previous === 'connected') notify('Connection lost. Reconnecting...', 'warning')
+    if (status === 'connected' && previous === 'reconnecting') notify('Back online', 'success')
+  }, [status, notify])
+
+  // Ctrl/Cmd + K opens the command palette. Capture phase, so it also works while the editor has focus.
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        event.stopPropagation()
+        setPaletteOpen((open) => !open)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [])
 
   const isSocketOpen = () => socketRef.current?.readyState === WebSocket.OPEN
 
@@ -221,7 +292,7 @@ export default function Room({ roomId, token, onSessionExpired }) {
     }
   }
 
-  // Keep refs to the latest handlers so the editor shortcut never runs with stale state.
+  // Keep a ref to the latest handler so the editor shortcut never runs with stale state.
   useEffect(() => {
     runRef.current = handleRun
   })
@@ -234,6 +305,11 @@ export default function Room({ roomId, token, onSessionExpired }) {
     await navigator.clipboard.writeText(code)
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
+  }
+
+  const handleCopyInviteLink = async () => {
+    await navigator.clipboard.writeText(window.location.href)
+    notify('Invite link copied', 'success')
   }
 
   const handleDownload = () => {
@@ -283,6 +359,7 @@ export default function Room({ roomId, token, onSessionExpired }) {
   }
 
   const handleTimerAction = (action, minutes) => send({ type: 'timer', action, minutes })
+  const handleTimerExpire = useCallback(() => notify('Time is up!', 'warning'), [notify])
   const handleSendChat = (text) => send({ type: 'chat', text })
 
   // ----- terminal states -----
@@ -303,6 +380,31 @@ export default function Room({ roomId, token, onSessionExpired }) {
 
   const connected = status === 'connected'
 
+  const commands = [
+    { id: 'run', label: 'Run code', hint: `${MOD_KEY}+Enter`, run: handleRun },
+    ...(problem ? [{ id: 'tests', label: 'Run tests', run: handleRunTests }] : []),
+    { id: 'invite', label: 'Copy invite link', run: handleCopyInviteLink },
+    { id: 'copy', label: 'Copy code', run: handleCopyCode },
+    { id: 'download', label: 'Download code', run: handleDownload },
+    { id: 'export', label: 'Export session as Markdown', run: handleExport },
+    { id: 'theme', label: `Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`, run: toggleTheme },
+    ...LANGUAGES.map((l) => ({
+      id: `language-${l.id}`,
+      label: `Switch language to ${l.label}`,
+      run: () => handleLanguageChange(l.id),
+    })),
+    ...(me.is_host
+      ? [
+          { id: 'problem', label: 'Choose a problem', run: () => setPickerOpen(true) },
+          {
+            id: 'timer',
+            label: timer.running ? 'Pause timer' : 'Start timer',
+            run: () => handleTimerAction(timer.running ? 'pause' : 'start'),
+          },
+        ]
+      : []),
+  ]
+
   return (
     <div className="flex h-full flex-col bg-canvas text-ink">
       <RoomHeader
@@ -313,6 +415,7 @@ export default function Room({ roomId, token, onSessionExpired }) {
         users={users}
         timer={timer}
         onTimerAction={handleTimerAction}
+        onTimerExpire={handleTimerExpire}
         status={status}
       />
 
@@ -346,6 +449,15 @@ export default function Room({ roomId, token, onSessionExpired }) {
             >
               <FileDown className="h-4 w-4" />
             </button>
+            <EditorSettings settings={editorSettings} onChange={setEditorSettings} />
+            <button
+              onClick={() => setPaletteOpen(true)}
+              className={iconButton}
+              aria-label="Open command palette"
+              title={`Command palette (${MOD_KEY}+K)`}
+            >
+              <Command className="h-4 w-4" />
+            </button>
 
             <div className="ml-auto flex items-center gap-2">
               {problem && (
@@ -362,13 +474,13 @@ export default function Room({ roomId, token, onSessionExpired }) {
               <button
                 onClick={handleRun}
                 disabled={running || !connected}
-                title={`Run code (${RUN_SHORTCUT}+Enter)`}
+                title={`Run code (${MOD_KEY}+Enter)`}
                 className={primaryButton}
               >
                 {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
                 {running ? 'Running' : 'Run'}
                 <kbd className="hidden rounded bg-white/20 px-1.5 py-0.5 text-[10px] font-normal xl:inline">
-                  {RUN_SHORTCUT}+Enter
+                  {MOD_KEY}+Enter
                 </kbd>
               </button>
             </div>
@@ -383,8 +495,10 @@ export default function Room({ roomId, token, onSessionExpired }) {
               onChange={handleCodeChange}
               onMount={handleEditorMount}
               options={{
-                fontSize: 14,
-                minimap: { enabled: false },
+                fontSize: editorSettings.fontSize,
+                tabSize: editorSettings.tabSize,
+                wordWrap: editorSettings.wordWrap ? 'on' : 'off',
+                minimap: { enabled: editorSettings.minimap },
                 scrollBeyondLastLine: false,
                 automaticLayout: true,
                 readOnly: !connected,
@@ -404,6 +518,7 @@ export default function Room({ roomId, token, onSessionExpired }) {
             testsError={testsError}
             testsRunning={testsRunning}
             onRunTests={handleRunTests}
+            history={history}
           />
         </main>
 
@@ -423,6 +538,7 @@ export default function Room({ roomId, token, onSessionExpired }) {
       </div>
 
       <ProblemPicker open={pickerOpen} onSelect={handleSelectProblem} onClose={() => setPickerOpen(false)} />
+      <CommandPalette open={paletteOpen} commands={commands} onClose={() => setPaletteOpen(false)} />
     </div>
   )
 }

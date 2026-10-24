@@ -40,3 +40,32 @@ def get_progress(user: models.User = Depends(get_current_user), db: Session = De
     # Raw timestamps; the browser groups them by local day to compute the streak.
     activity = [s.created_at.isoformat() for s in submissions[:MAX_ACTIVITY_ENTRIES] if s.created_at]
     return {"problems": list(problems.values()), "activity": activity}
+
+
+LEADERBOARD_SIZE = 10
+
+
+@router.get("/leaderboard")
+def leaderboard(user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Top users by number of distinct library problems solved."""
+    solved_rows = (
+        db.query(models.Submission.user_id, models.User.username, models.Submission.problem_id)
+        .join(models.User, models.User.id == models.Submission.user_id)
+        .filter(
+            models.Submission.total_cases > 0,
+            models.Submission.passed_cases == models.Submission.total_cases,
+        )
+        .distinct()
+        .all()
+    )
+
+    solved_by_user: dict[int, dict] = {}
+    for user_id, username, _problem_id in solved_rows:
+        entry = solved_by_user.setdefault(user_id, {"user_id": user_id, "username": username, "solved": 0})
+        entry["solved"] += 1
+
+    ranked = sorted(solved_by_user.values(), key=lambda e: (-e["solved"], e["username"].lower()))
+    return [
+        {"rank": index, "username": e["username"], "solved": e["solved"], "is_you": e["user_id"] == user.id}
+        for index, e in enumerate(ranked[:LEADERBOARD_SIZE], start=1)
+    ]

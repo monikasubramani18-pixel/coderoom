@@ -9,7 +9,7 @@ const PRESET_MINUTES = [15, 30, 45, 60, 90]
  * Shared interview timer. The server owns the clock; each client counts down
  * locally from the snapshot it last received (`timer.receivedAt`).
  */
-export default function Timer({ timer, isHost, onAction }) {
+export default function Timer({ timer, isHost, onAction, onExpire }) {
   const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
@@ -22,6 +22,11 @@ export default function Timer({ timer, isHost, onAction }) {
   const remaining = Math.max(0, timer.remaining - elapsed)
   const expired = timer.duration > 0 && remaining === 0
   const urgent = timer.running && remaining <= 300
+
+  // Fires once, when a running timer reaches zero.
+  useEffect(() => {
+    if (timer.running && expired) onExpire?.()
+  }, [timer.running, expired, onExpire])
 
   const tone = expired ? 'text-danger' : urgent ? 'text-warning' : 'text-ink'
   const durationMinutes = Math.round(timer.duration / 60)

@@ -13,6 +13,11 @@ Real-time collaborative coding and mock-interview platform. Create a room, invit
 - **Interview mode**: the host posts the question, controls a shared countdown timer and keeps private notes; every participant can leave a rating and written feedback
 - **Practice library**: 20 curated problems (plus a problem of the day) (arrays, strings, stacks, DP, graphs and more) with statements, examples, hints and a worked approach. Each problem runs against test cases in the same sandbox and returns a verdict per case (passed, wrong answer, error, time limit)
 - **Practice mode and progress**: start any problem as a private room and invite a friend to solve it together. The dashboard tracks problems solved, test runs and a day streak
+- **Motivation**: activity heatmap, day streak and a leaderboard of top problem solvers
+- **Collaboration awareness**: toast notifications (joins, leaves, teammate runs and test results, timer end, reconnects), unread chat badge and a per-room run history
+- **Command palette**: `Ctrl/Cmd + K` for quick actions (run, tests, switch language, theme, export, timer)
+- **Topic mastery**: progress bars by difficulty and topic
+- **Editor preferences**: font size, tab size, word wrap and minimap, remembered per browser
 - **Study notes**: export a session (question, final code, results, chat) as a Markdown file for revision
 - **Persistence**: rooms, code, questions and feedback are stored in PostgreSQL; live edits are debounced so the database is not written on every keystroke
 - **Security**: bcrypt-hashed passwords, JWT access tokens enforced on REST and WebSocket endpoints, rate limiting on login, registration and code execution
