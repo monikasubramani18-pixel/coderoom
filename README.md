@@ -14,6 +14,7 @@ Real-time collaborative coding and mock-interview platform. Create a room, invit
 - **Practice library**: 20 curated problems (plus a problem of the day) (arrays, strings, stacks, DP, graphs and more) with statements, examples, hints and a worked approach. Each problem runs against test cases in the same sandbox and returns a verdict per case (passed, wrong answer, error, time limit)
 - **Practice mode and progress**: start any problem as a private room and invite a friend to solve it together. The dashboard tracks problems solved, test runs and a day streak
 - **Motivation**: activity heatmap, day streak and a leaderboard of top problem solvers
+- **Video and attention**: opt-in peer-to-peer video (WebRTC) with a mute button, plus on-device attention detection (face and gaze, tab switches, inactivity). Others see a status such as Focused, Looking away or Left the tab, never images
 - **Collaboration awareness**: toast notifications (joins, leaves, teammate runs and test results, timer end, reconnects), unread chat badge and a per-room run history
 - **Command palette**: `Ctrl/Cmd + K` for quick actions (run, tests, switch language, theme, export, timer)
 - **Topic mastery**: progress bars by difficulty and topic
@@ -90,9 +91,18 @@ The suite uses a throw-away SQLite database and mocks Docker, so it needs neithe
 
 ## WebSocket protocol
 
-Client to server: `code`, `chat`, `question` (host), `problem` (host), `title` (host), `timer` (host).
-Server to client: `init`, `code`, `chat`, `question`, `problem`, `title`, `presence`, `timer`, `run_result`, `tests_result`.
+Client to server: `code`, `chat`, `question` (host), `problem` (host), `title` (host), `timer` (host), `camera`, `attention`, `rtc`.
+Server to client: `init`, `code`, `chat`, `question`, `problem`, `title`, `presence`, `timer`, `run_result`, `tests_result`, `rtc`.
 Close codes: `4401` unauthorized, `4404` room not found.
+
+## Video, attention and privacy
+
+- The camera is opt-in per person and starts after an explicit consent dialog. The microphone starts muted.
+- Video flows directly between browsers (WebRTC). The server only relays small signalling messages and is never in the media path; nothing is recorded.
+- Attention detection (MediaPipe Face Landmarker) runs inside the browser. Only a status label is sent, and users can stop sharing it at any time.
+- Browsers cannot truly correct eye gaze. For the closest thing to eye contact, keep the video strip near your webcam and look at the faces; the green ring shows who is looking at their screen.
+- Attention signals are hints, not proof. Treat them as a conversation starter, not a verdict about a candidate.
+- Strict corporate networks may need a TURN server: set `VITE_ICE_SERVERS` (see `frontend/.env.example`).
 
 ## Security notes
 

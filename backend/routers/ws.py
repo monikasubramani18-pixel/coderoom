@@ -7,6 +7,9 @@ Client -> server messages (JSON, `type` field):
     title     {title}                         host only
     timer     {action: start|pause|reset, minutes?}   host only
     problem   {problem_id, question}          host only (problem_id may be null)
+    camera    {on}                            anyone, announces that video is on/off
+    attention {status}                        anyone with the camera on; status is computed on the user's device
+    rtc       {to, data}                      WebRTC signalling, relayed to one participant
 """
 import json
 import logging
@@ -32,6 +35,9 @@ MAX_CHAT_CHARS = 500
 MAX_QUESTION_CHARS = 5_000
 MAX_TITLE_CHARS = 80
 MAX_PROBLEM_ID_CHARS = 40
+MAX_RTC_PAYLOAD_CHARS = 20_000
+RTC_KINDS = frozenset({"offer", "answer", "candidate"})
+ATTENTION_STATUSES = frozenset({"focused", "away", "no_face", "tab_hidden", "idle"})
 
 
 async def handle_message(room_id: str, state: RoomState, peer: Peer, message: dict) -> None:
@@ -76,6 +82,40 @@ async def handle_message(room_id: str, state: RoomState, peer: Peer, message: di
         state.title = title.strip()[:MAX_TITLE_CHARS] or "Untitled room"
         await hub.broadcast(room_id, {"type": "title", "title": state.title}, exclude=peer.ws)
         hub.schedule_save(room_id)
+
+    elif kind == "camera":
+        on = message.get("on")
+        if not isinstance(on, bool) or peer.camera == on:
+            return
+        peer.camera = on
+        if not on:
+            peer.attention = None
+        await hub.broadcast_presence(room_id)
+
+    elif kind == "attention":
+        status = message.get("status")
+        if status is not None and (not isinstance(status, str) or status not in ATTENTION_STATUSES):
+            return
+        if not peer.camera:  # attention is only shared together with video
+            status = None
+        if peer.attention == status:
+            return
+        peer.attention = status
+        await hub.broadcast_presence(room_id)
+
+    elif kind == "rtc":
+        target, data = message.get("to"), message.get("data")
+        valid = (
+            isinstance(target, int)
+            and not isinstance(target, bool)
+            and isinstance(data, dict)
+            and data.get("kind") in RTC_KINDS
+            and len(json.dumps(data)) <= MAX_RTC_PAYLOAD_CHARS
+        )
+        # Signalling only flows between two different people who are both in this room.
+        if not valid or target == peer.user_id or not hub.has_user(room_id, target):
+            return
+        await hub.send_to_user(room_id, target, {"type": "rtc", "from": peer.user_id, "data": data})
 
     elif kind == "problem" and is_host:
         problem_id, question = message.get("problem_id"), message.get("question")

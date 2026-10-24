@@ -85,6 +85,8 @@ class Peer:
     ws: WebSocket
     user_id: int
     username: str
+    camera: bool = False  # camera is on and the user opted in to video
+    attention: str | None = None  # shared attention status, only while the camera is on
 
 
 def persist_room(room_id: str, state: RoomState) -> None:
@@ -117,22 +119,37 @@ class RoomHub:
     def online_users(self, room_id: str) -> list[dict]:
         state = self.states.get(room_id)
         owner_id = state.owner_id if state else None
-        seen: set[int] = set()
-        users = []
+        users: dict[int, dict] = {}
         for peer in self.peers.get(room_id, []):
-            if peer.user_id in seen:  # same user in several tabs counts once
-                continue
-            seen.add(peer.user_id)
-            users.append(
-                {"id": peer.user_id, "username": peer.username, "is_host": peer.user_id == owner_id}
-            )
-        return users
+            entry = users.get(peer.user_id)  # same user in several tabs counts once
+            if entry is None:
+                users[peer.user_id] = {
+                    "id": peer.user_id,
+                    "username": peer.username,
+                    "is_host": peer.user_id == owner_id,
+                    "camera": peer.camera,
+                    "attention": peer.attention if peer.camera else None,
+                }
+            elif peer.camera and not entry["camera"]:
+                entry["camera"], entry["attention"] = True, peer.attention
+        return list(users.values())
 
     # ----- messaging -----
     async def broadcast(self, room_id: str, message: dict, exclude: WebSocket | None = None) -> None:
         data = json.dumps(message)
         for peer in list(self.peers.get(room_id, [])):
             if peer.ws is exclude:
+                continue
+            try:
+                await peer.ws.send_text(data)
+            except Exception:  # the socket is closing; its own handler cleans up
+                logger.debug("Could not deliver message to %s", peer.username, exc_info=True)
+
+    async def send_to_user(self, room_id: str, user_id: int, message: dict) -> None:
+        """Deliver a message to every open connection of one user in a room."""
+        data = json.dumps(message)
+        for peer in list(self.peers.get(room_id, [])):
+            if peer.user_id != user_id:
                 continue
             try:
                 await peer.ws.send_text(data)

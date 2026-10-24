@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Editor from '@monaco-editor/react'
-import { Check, Command, Copy, Download, FileDown, FlaskConical, Loader2, Play } from 'lucide-react'
+import { Check, Command, Copy, Download, FileDown, FlaskConical, Loader2, Mic, MicOff, Play, Video, VideoOff } from 'lucide-react'
 import { WS_URL, api } from './api'
+import CameraConsentDialog from './components/CameraConsentDialog'
 import CommandPalette from './components/CommandPalette'
 import Console from './components/Console'
 import EditorSettings from './components/EditorSettings'
@@ -9,12 +10,15 @@ import ProblemPicker from './components/ProblemPicker'
 import RoomHeader from './components/RoomHeader'
 import SidePanel from './components/SidePanel'
 import { useToast } from './components/Toast'
+import VideoDock from './components/VideoDock'
 import { useEditorSettings } from './lib/editorSettings'
 import { exportSession } from './lib/exportSession'
 import { LANGUAGES, TEMPLATES, languageMeta } from './lib/languages'
 import { buildQuestionText, getProblem } from './lib/problems'
 import { ghostButton, iconButton, primaryButton } from './lib/ui'
+import useAttention from './lib/useAttention'
 import useDocumentTitle from './lib/useDocumentTitle'
+import useVideoCall from './lib/useVideoCall'
 import { useTheme } from './theme'
 
 const MAX_RECONNECT_ATTEMPTS = 5
@@ -64,6 +68,8 @@ export default function Room({ roomId, token, onSessionExpired }) {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [consentOpen, setConsentOpen] = useState(false)
+  const [shareAttention, setShareAttention] = useState(true)
 
   const socketRef = useRef(null)
   const lastRemoteCode = useRef(null)
@@ -72,6 +78,8 @@ export default function Room({ roomId, token, onSessionExpired }) {
   const meRef = useRef(null) // latest identity, readable from the socket handlers
   const usersRef = useRef(null) // previous presence list, used to announce joins and leaves
   const previousStatus = useRef('connecting')
+  const signalHandlerRef = useRef(null) // set by useVideoCall to handle WebRTC signalling
+  const localVideoRef = useRef(null) // the local <video>, also read by the attention tracker
 
   const problem = getProblem(problemId)
   useDocumentTitle(title)
@@ -172,6 +180,9 @@ export default function Room({ roomId, token, onSessionExpired }) {
           }
           break
         }
+        case 'rtc':
+          signalHandlerRef.current?.(message)
+          break
         default:
           break
       }
@@ -238,6 +249,16 @@ export default function Room({ roomId, token, onSessionExpired }) {
   const send = (payload) => {
     if (isSocketOpen()) socketRef.current.send(JSON.stringify(payload))
   }
+
+  // ----- video call and attention (hooks must stay above the early returns below) -----
+  const isConnected = status === 'connected'
+  const call = useVideoCall({ me, users, connected: isConnected, send, signalHandlerRef })
+  const attention = useAttention({
+    enabled: Boolean(call.localStream) && shareAttention,
+    videoRef: localVideoRef,
+    connected: isConnected,
+    send,
+  })
 
   // ----- editor -----
   const handleCodeChange = (value) => {
@@ -362,6 +383,13 @@ export default function Room({ roomId, token, onSessionExpired }) {
   const handleTimerExpire = useCallback(() => notify('Time is up!', 'warning'), [notify])
   const handleSendChat = (text) => send({ type: 'chat', text })
 
+  const handleToggleCamera = () => (call.localStream ? call.stopCamera() : setConsentOpen(true))
+  const handleConfirmCamera = async () => {
+    setConsentOpen(false)
+    const problemMessage = await call.startCamera()
+    if (problemMessage) notify(problemMessage, 'danger')
+  }
+
   // ----- terminal states -----
   if (status === 'not_found') {
     return <FullScreenMessage title={`Room "${roomId}" does not exist.`} actionLabel="Back to dashboard" href="/" />
@@ -383,6 +411,7 @@ export default function Room({ roomId, token, onSessionExpired }) {
   const commands = [
     { id: 'run', label: 'Run code', hint: `${MOD_KEY}+Enter`, run: handleRun },
     ...(problem ? [{ id: 'tests', label: 'Run tests', run: handleRunTests }] : []),
+    { id: 'camera', label: call.localStream ? 'Turn camera off' : 'Turn camera on', run: handleToggleCamera },
     { id: 'invite', label: 'Copy invite link', run: handleCopyInviteLink },
     { id: 'copy', label: 'Copy code', run: handleCopyCode },
     { id: 'download', label: 'Download code', run: handleDownload },
@@ -458,6 +487,25 @@ export default function Room({ roomId, token, onSessionExpired }) {
             >
               <Command className="h-4 w-4" />
             </button>
+            <button
+              onClick={handleToggleCamera}
+              className={iconButton}
+              aria-label={call.localStream ? 'Turn camera off' : 'Turn camera on'}
+              aria-pressed={Boolean(call.localStream)}
+              title={call.localStream ? 'Turn camera off' : 'Turn camera on'}
+            >
+              {call.localStream ? <Video className="h-4 w-4 text-success" /> : <VideoOff className="h-4 w-4" />}
+            </button>
+            {call.localStream && (
+              <button
+                onClick={call.toggleMic}
+                className={iconButton}
+                aria-label={call.micOn ? 'Mute microphone' : 'Unmute microphone'}
+                title={call.micOn ? 'Mute microphone' : 'Unmute microphone'}
+              >
+                {call.micOn ? <Mic className="h-4 w-4 text-success" /> : <MicOff className="h-4 w-4" />}
+              </button>
+            )}
 
             <div className="ml-auto flex items-center gap-2">
               {problem && (
@@ -485,6 +533,18 @@ export default function Room({ roomId, token, onSessionExpired }) {
               </button>
             </div>
           </div>
+
+          <VideoDock
+            users={users}
+            me={me}
+            localStream={call.localStream}
+            remoteStreams={call.remoteStreams}
+            localVideoRef={localVideoRef}
+            localStatus={attention.status}
+            engine={attention.engine}
+            shareAttention={shareAttention}
+            onShareAttentionChange={setShareAttention}
+          />
 
           <div className="min-h-0 flex-1">
             <Editor
@@ -538,6 +598,7 @@ export default function Room({ roomId, token, onSessionExpired }) {
       </div>
 
       <ProblemPicker open={pickerOpen} onSelect={handleSelectProblem} onClose={() => setPickerOpen(false)} />
+      <CameraConsentDialog open={consentOpen} onConfirm={handleConfirmCamera} onCancel={() => setConsentOpen(false)} />
       <CommandPalette open={paletteOpen} commands={commands} onClose={() => setPaletteOpen(false)} />
     </div>
   )
