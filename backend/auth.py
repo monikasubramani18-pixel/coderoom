@@ -1,22 +1,15 @@
 """Password hashing, JWT creation and authentication dependencies."""
-import os
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
 import jwt
-from dotenv import load_dotenv
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
+from config import settings
 from database import get_db
 from models import User
-
-load_dotenv()
-
-SECRET_KEY = os.getenv("SECRET_KEY")
-if not SECRET_KEY:
-    raise RuntimeError("SECRET_KEY is not set. Add it to backend/.env")
 
 ALGORITHM = "HS256"
 TOKEN_LIFETIME_HOURS = 24
@@ -37,7 +30,7 @@ def create_token(user_id: int) -> str:
         "sub": str(user_id),
         "exp": datetime.now(timezone.utc) + timedelta(hours=TOKEN_LIFETIME_HOURS),
     }
-    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+    return jwt.encode(payload, settings.secret_key, algorithm=ALGORITHM)
 
 
 def get_user_from_token(token: str | None, db: Session) -> User | None:
@@ -45,7 +38,7 @@ def get_user_from_token(token: str | None, db: Session) -> User | None:
     if not token:
         return None
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, settings.secret_key, algorithms=[ALGORITHM])
         user_id = int(payload["sub"])
     except (jwt.PyJWTError, KeyError, ValueError):
         return None

@@ -4,6 +4,7 @@ import { api } from './api'
 import Brand from './components/Brand'
 import ThemeToggle from './components/ThemeToggle'
 import { inputClass, primaryButton } from './lib/ui'
+import useDocumentTitle from './lib/useDocumentTitle'
 
 const FEATURES = [
   { icon: Users, title: 'Real-time collaboration', text: 'Edit code together with live presence and chat.' },
@@ -21,6 +22,8 @@ function Field({ label, ...props }) {
 }
 
 export default function AuthPage({ onAuth }) {
+  useDocumentTitle('Sign in')
+
   const [mode, setMode] = useState('login')
   const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')

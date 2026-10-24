@@ -75,6 +75,7 @@ class RoomState:
     question: str
     owner_id: int
     owner_name: str
+    problem_id: str | None = None
     chat: list[dict] = field(default_factory=list)
     timer: Timer = field(default_factory=Timer)
 
@@ -95,6 +96,7 @@ def persist_room(room_id: str, state: RoomState) -> None:
         room.code = state.code
         room.language = state.language
         room.question = state.question
+        room.problem_id = state.problem_id
         room.updated_at = models.utcnow()
         db.commit()
 

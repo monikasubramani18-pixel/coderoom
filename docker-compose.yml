@@ -1,0 +1,23 @@
+# Optional: local PostgreSQL for development (`docker compose up -d db`).
+# Uses host port 5433 so it does not clash with a PostgreSQL already installed on 5432.
+# Matching backend/.env value:
+#   DATABASE_URL=postgresql+psycopg://coderoom:coderoom@localhost:5433/coderoom
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: coderoom
+      POSTGRES_PASSWORD: coderoom # development only
+      POSTGRES_DB: coderoom
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U coderoom"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:

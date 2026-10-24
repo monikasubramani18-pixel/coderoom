@@ -1,13 +1,106 @@
 import { useEffect, useState } from 'react'
-import { CheckCircle2, Loader2, XCircle } from 'lucide-react'
+import { CheckCircle2, FlaskConical, Loader2, XCircle } from 'lucide-react'
+import { primaryButton } from '../lib/ui'
 
-export default function Console({ result, error, running, stdin, onStdinChange }) {
+const VERDICTS = {
+  passed: { label: 'Passed', tone: 'text-success' },
+  wrong_answer: { label: 'Wrong answer', tone: 'text-danger' },
+  error: { label: 'Error', tone: 'text-danger' },
+  time_limit: { label: 'Time limit exceeded', tone: 'text-warning' },
+}
+
+function Block({ label, text }) {
+  return (
+    <div>
+      <p className="mb-0.5 text-[11px] uppercase tracking-wide text-muted">{label}</p>
+      <pre className="overflow-x-auto whitespace-pre-wrap rounded bg-raised px-2 py-1 text-xs text-ink">{text || '(empty)'}</pre>
+    </div>
+  )
+}
+
+function TestsView({ problem, result, error, running, onRun }) {
+  const showing = result && result.problem_id === problem.id ? result : null
+
+  return (
+    <div className="flex-1 overflow-y-auto p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <p className="text-sm text-ink">
+          {showing ? (
+            <>
+              <span className={`font-semibold ${showing.passed === showing.total ? 'text-success' : 'text-danger'}`}>
+                {showing.passed} / {showing.total} passed
+              </span>
+              <span className="ml-2 text-xs text-muted">run by {showing.by}</span>
+            </>
+          ) : (
+            <span className="text-muted">{problem.tests.length} test cases for {problem.title}</span>
+          )}
+        </p>
+        <button onClick={onRun} disabled={running} className={primaryButton}>
+          {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <FlaskConical className="h-4 w-4" />}
+          {running ? 'Judging...' : 'Run tests'}
+        </button>
+      </div>
+
+      {error && <p className="mb-3 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>}
+
+      {showing && (
+        <ul className="space-y-2">
+          {showing.results.map((item, index) => {
+            const verdict = VERDICTS[item.verdict] || VERDICTS.error
+            const test = problem.tests[index]
+            return (
+              <li key={`${index}-${item.verdict}`} className="rounded-md border border-line">
+                <details open={item.verdict !== 'passed'}>
+                  <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm">
+                    {item.verdict === 'passed' ? (
+                      <CheckCircle2 className="h-4 w-4 text-success" />
+                    ) : (
+                      <XCircle className={`h-4 w-4 ${verdict.tone}`} />
+                    )}
+                    <span className="text-ink">Test {item.case}</span>
+                    <span className={`text-xs font-medium ${verdict.tone}`}>{verdict.label}</span>
+                    <span className="ml-auto text-xs text-muted">{item.duration_ms} ms</span>
+                  </summary>
+                  <div className="space-y-2 border-t border-line p-3">
+                    {test && <Block label="Input" text={test.input} />}
+                    {test && <Block label="Expected" text={test.expected} />}
+                    <Block label={item.verdict === 'passed' || item.verdict === 'wrong_answer' ? 'Your output' : 'Details'} text={item.actual} />
+                  </div>
+                </details>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+export default function Console({
+  result,
+  error,
+  running,
+  stdin,
+  onStdinChange,
+  problem,
+  testResult,
+  testsError,
+  testsRunning,
+  onRunTests,
+}) {
   const [tab, setTab] = useState('output')
 
-  // Show the output tab whenever a new result arrives (yours or a teammate's).
+  // Jump to the matching tab whenever a new result arrives (yours or a teammate's).
   useEffect(() => {
     if (result) setTab('output')
   }, [result])
+  useEffect(() => {
+    if (testResult) setTab('tests')
+  }, [testResult])
+  useEffect(() => {
+    if (!problem && tab === 'tests') setTab('output')
+  }, [problem, tab])
 
   const tabClass = (name) =>
     `border-b-2 px-4 py-2 text-xs font-medium uppercase tracking-wide transition ${
@@ -15,7 +108,7 @@ export default function Console({ result, error, running, stdin, onStdinChange }
     }`
 
   return (
-    <section className="flex h-52 shrink-0 flex-col border-t border-line bg-panel">
+    <section className="flex h-64 shrink-0 flex-col border-t border-line bg-panel">
       <div className="flex items-center justify-between border-b border-line">
         <div className="flex">
           <button className={tabClass('output')} onClick={() => setTab('output')}>
@@ -24,6 +117,11 @@ export default function Console({ result, error, running, stdin, onStdinChange }
           <button className={tabClass('input')} onClick={() => setTab('input')}>
             Input (stdin)
           </button>
+          {problem && (
+            <button className={tabClass('tests')} onClick={() => setTab('tests')}>
+              Tests
+            </button>
+          )}
         </div>
         {tab === 'output' && result && !running && (
           <div className="flex items-center gap-3 pr-4 text-xs text-muted">
@@ -37,7 +135,9 @@ export default function Console({ result, error, running, stdin, onStdinChange }
         )}
       </div>
 
-      {tab === 'input' ? (
+      {tab === 'tests' && problem ? (
+        <TestsView problem={problem} result={testResult} error={testsError} running={testsRunning} onRun={onRunTests} />
+      ) : tab === 'input' ? (
         <textarea
           value={stdin}
           onChange={(e) => onStdinChange(e.target.value)}

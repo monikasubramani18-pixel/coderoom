@@ -12,3 +12,6 @@ export const iconButton =
   'inline-flex h-9 w-9 items-center justify-center rounded-md border border-line bg-panel text-muted transition hover:bg-raised hover:text-ink disabled:cursor-not-allowed disabled:opacity-50'
 
 export const card = 'rounded-lg border border-line bg-panel'
+
+export const dangerButton =
+  'inline-flex items-center justify-center gap-2 rounded-md bg-danger px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50'

@@ -8,6 +8,7 @@ import models
 from auth import get_current_user
 from database import get_db
 from realtime import hub
+from sandbox import SUPPORTED_LANGUAGES
 from schemas import CreateRoomRequest, FeedbackIn, NotesUpdate
 
 router = APIRouter(prefix="/rooms", tags=["rooms"])
@@ -35,12 +36,16 @@ def create_room(
     user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    if payload.language not in SUPPORTED_LANGUAGES:
+        raise HTTPException(status_code=400, detail=f"Unsupported language: {payload.language}")
     room = models.Room(
         id=secrets.token_hex(4),
         owner_id=user.id,
         title=payload.title.strip() or "Untitled room",
-        code=DEFAULT_CODE,
-        language="python",
+        code=DEFAULT_CODE if payload.code is None else payload.code,
+        language=payload.language,
+        question=payload.question,
+        problem_id=payload.problem_id,
     )
     db.add(room)
     db.commit()
@@ -61,6 +66,7 @@ def list_my_rooms(user: models.User = Depends(get_current_user), db: Session = D
             "id": room.id,
             "title": room.title,
             "language": room.language,
+            "problem_id": room.problem_id,
             "updated_at": room.updated_at.isoformat() if room.updated_at else None,
             "active": hub.is_active(room.id),
         }

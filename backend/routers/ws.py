@@ -6,6 +6,7 @@ Client -> server messages (JSON, `type` field):
     question  {text}                          host only
     title     {title}                         host only
     timer     {action: start|pause|reset, minutes?}   host only
+    problem   {problem_id, question}          host only (problem_id may be null)
 """
 import json
 import logging
@@ -30,6 +31,7 @@ MAX_MESSAGE_CHARS = 120_000
 MAX_CHAT_CHARS = 500
 MAX_QUESTION_CHARS = 5_000
 MAX_TITLE_CHARS = 80
+MAX_PROBLEM_ID_CHARS = 40
 
 
 async def handle_message(room_id: str, state: RoomState, peer: Peer, message: dict) -> None:
@@ -75,6 +77,17 @@ async def handle_message(room_id: str, state: RoomState, peer: Peer, message: di
         await hub.broadcast(room_id, {"type": "title", "title": state.title}, exclude=peer.ws)
         hub.schedule_save(room_id)
 
+    elif kind == "problem" and is_host:
+        problem_id, question = message.get("problem_id"), message.get("question")
+        valid_id = problem_id is None or (isinstance(problem_id, str) and 0 < len(problem_id) <= MAX_PROBLEM_ID_CHARS)
+        if not valid_id or not isinstance(question, str) or len(question) > MAX_QUESTION_CHARS:
+            return
+        state.problem_id, state.question = problem_id, question
+        await hub.broadcast(
+            room_id, {"type": "problem", "problem_id": problem_id, "question": question}, exclude=peer.ws
+        )
+        hub.schedule_save(room_id)
+
     elif kind == "timer" and is_host:
         action = message.get("action")
         if action == "start":
@@ -108,6 +121,7 @@ async def room_socket(websocket: WebSocket, room_id: str, token: str | None = Qu
                     "code": room.code,
                     "language": room.language,
                     "question": room.question,
+                    "problem_id": room.problem_id,
                     "owner_id": room.owner_id,
                     "owner_name": owner.username,
                 }
@@ -138,6 +152,7 @@ async def room_socket(websocket: WebSocket, room_id: str, token: str | None = Qu
                         "code": state.code,
                         "language": state.language,
                         "question": state.question,
+                        "problem_id": state.problem_id,
                     },
                     "chat": state.chat,
                     "timer": state.timer.snapshot(),

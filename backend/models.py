@@ -37,6 +37,7 @@ class Room(Base):
     code = Column(Text, nullable=False, default="")
     language = Column(String(20), nullable=False, default="python")
     question = Column(Text, nullable=False, default="")  # problem statement shown to everyone
+    problem_id = Column(String(40), nullable=True)  # id from the frontend problem library
     notes = Column(Text, nullable=False, default="")  # private to the host
     created_at = Column(DateTime(timezone=True), default=utcnow)
     updated_at = Column(DateTime(timezone=True), default=utcnow)
@@ -53,3 +54,17 @@ class Feedback(Base):
     comment = Column(Text, nullable=False, default="")
     created_at = Column(DateTime(timezone=True), default=utcnow)
     updated_at = Column(DateTime(timezone=True), default=utcnow)
+
+
+class Submission(Base):
+    """One "run tests" attempt on a library problem; used for the progress dashboard."""
+
+    __tablename__ = "submissions"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    problem_id = Column(String(40), nullable=False, index=True)
+    language = Column(String(20), nullable=False)
+    passed_cases = Column(Integer, nullable=False)
+    total_cases = Column(Integer, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow)

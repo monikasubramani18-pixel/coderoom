@@ -5,7 +5,19 @@ import FeedbackPanel from './panels/FeedbackPanel'
 import NotesPanel from './panels/NotesPanel'
 import QuestionPanel from './panels/QuestionPanel'
 
-export default function SidePanel({ roomId, token, me, question, onQuestionChange, chat, onSendChat, connected }) {
+export default function SidePanel({
+  roomId,
+  token,
+  me,
+  question,
+  onQuestionChange,
+  problem,
+  onOpenPicker,
+  onClearProblem,
+  chat,
+  onSendChat,
+  connected,
+}) {
   const [active, setActive] = useState('question')
 
   const tabs = [
@@ -36,11 +48,16 @@ export default function SidePanel({ roomId, token, me, question, onQuestionChang
 
       <div className="min-h-0 flex-1">
         {active === 'question' && (
-          <QuestionPanel question={question} isHost={me.is_host} onChange={onQuestionChange} />
+          <QuestionPanel
+            question={question}
+            isHost={me.is_host}
+            onChange={onQuestionChange}
+            problem={problem}
+            onOpenPicker={onOpenPicker}
+            onClearProblem={onClearProblem}
+          />
         )}
-        {active === 'chat' && (
-          <ChatPanel messages={chat} meId={me.id} onSend={onSendChat} disabled={!connected} />
-        )}
+        {active === 'chat' && <ChatPanel messages={chat} meId={me.id} onSend={onSendChat} disabled={!connected} />}
         {active === 'notes' && me.is_host && <NotesPanel roomId={roomId} token={token} />}
         {active === 'feedback' && <FeedbackPanel roomId={roomId} token={token} meId={me.id} />}
       </div>

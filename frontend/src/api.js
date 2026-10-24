@@ -1,29 +1,36 @@
-// Deploy pannum bodhu VITE_API_URL set pannunga (e.g. https://api.example.com)
+// Set VITE_API_URL when deploying (e.g. https://api.example.com)
 export const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
-export const WS_URL = API.replace(/^http/, 'ws') // http -> ws, https -> wss
+// http -> ws, https -> wss
+export const WS_URL = API.replace(/^http/, 'ws')
+
+function extractErrorMessage(data) {
+  if (typeof data?.detail === 'string') return data.detail
+  if (Array.isArray(data?.detail)) return data.detail[0]?.msg || 'Invalid input'
+  return 'Something went wrong. Please try again.'
+}
 
 export async function api(path, { method = 'GET', body, token } = {}) {
-  const res = await fetch(`${API}${path}`, {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  })
+  let response
+  try {
+    response = await fetch(`${API}${path}`, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    })
+  } catch {
+    throw new Error('Cannot reach the server. Is the backend running?')
+  }
 
   let data = null
   try {
-    data = await res.json()
+    data = await response.json()
   } catch {
-    // empty response
+    // Empty body (e.g. 204 No Content)
   }
 
-  if (!res.ok) {
-    let msg = 'Edho thappu aagiduchu'
-    if (typeof data?.detail === 'string') msg = data.detail
-    else if (Array.isArray(data?.detail)) msg = data.detail[0]?.msg || msg
-    throw new Error(msg)
-  }
+  if (!response.ok) throw new Error(extractErrorMessage(data))
   return data
 }

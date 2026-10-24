@@ -25,9 +25,11 @@ MAX_STDIN_CHARS = 10_000
 
 @dataclass(frozen=True)
 class RunResult:
-    output: str
+    output: str  # stdout + stderr, shown to the user
     ok: bool
     duration_ms: int
+    stdout: str = ""  # stdout only, used for judging test cases
+    timed_out: bool = False
 
 
 def run_code(language: str, code: str, stdin: str = "") -> RunResult:
@@ -71,7 +73,9 @@ def run_code(language: str, code: str, stdin: str = "") -> RunResult:
         )
     except subprocess.TimeoutExpired:
         subprocess.run(["docker", "rm", "-f", container_name], capture_output=True)
-        return RunResult(f"Time limit exceeded ({TIMEOUT_SECONDS}s)", False, TIMEOUT_SECONDS * 1000)
+        return RunResult(
+            f"Time limit exceeded ({TIMEOUT_SECONDS}s)", False, TIMEOUT_SECONDS * 1000, timed_out=True
+        )
     except FileNotFoundError:
         return RunResult("Docker is not installed or not on PATH.", False, 0)
 
@@ -80,4 +84,7 @@ def run_code(language: str, code: str, stdin: str = "") -> RunResult:
     if process.returncode == 125:  # `docker run` itself failed (daemon down, image missing, ...)
         logger.warning("docker run failed: %s", output.strip())
         output = f"Execution service error. Is Docker running?\n\n{output}"
-    return RunResult(output[:MAX_OUTPUT_CHARS] or "(no output)", process.returncode == 0, duration_ms)
+    stdout = process.stdout.decode("utf-8", errors="replace")[:MAX_OUTPUT_CHARS]
+    return RunResult(
+        output[:MAX_OUTPUT_CHARS] or "(no output)", process.returncode == 0, duration_ms, stdout=stdout
+    )
