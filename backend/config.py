@@ -21,6 +21,9 @@ class Settings:
     # Origins allowed by CORS, e.g. FRONTEND_URLS=https://coderoom.netlify.app
     frontend_urls: tuple[str, ...]
     token_lifetime_hours: int = 24
+    # Optional: enables the AI assistant. Without a key the feature stays switched off.
+    anthropic_api_key: str | None = None
+    anthropic_model: str = "claude-haiku-5-5"
 
 
 def load_settings() -> Settings:
@@ -29,6 +32,8 @@ def load_settings() -> Settings:
         database_url=_require("DATABASE_URL"),
         secret_key=_require("SECRET_KEY"),
         frontend_urls=tuple(o.strip() for o in origins.split(",") if o.strip()),
+        anthropic_api_key=os.getenv("ANTHROPIC_API_KEY") or None,
+        anthropic_model=os.getenv("ANTHROPIC_MODEL", "claude-haiku-5-5"),
     )
 
 

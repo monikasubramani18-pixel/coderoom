@@ -68,3 +68,16 @@ class Submission(Base):
     passed_cases = Column(Integer, nullable=False)
     total_cases = Column(Integer, nullable=False)
     created_at = Column(DateTime(timezone=True), default=utcnow)
+
+
+class RoomEvent(Base):
+    """Timeline entry (code snapshot, run, test run, join, leave, ...) used to replay a session."""
+
+    __tablename__ = "room_events"
+
+    id = Column(Integer, primary_key=True)
+    room_id = Column(String(16), ForeignKey("rooms.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    kind = Column(String(20), nullable=False)
+    payload = Column(Text, nullable=False, default="{}")  # JSON
+    created_at = Column(DateTime(timezone=True), default=utcnow, index=True)

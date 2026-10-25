@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { ClipboardList, FileText, MessageSquare, Star } from 'lucide-react'
+import { ClipboardList, FileText, MessageSquare, Sparkles, Star } from 'lucide-react'
+import AiPanel from './panels/AiPanel'
 import ChatPanel from './panels/ChatPanel'
 import FeedbackPanel from './panels/FeedbackPanel'
 import NotesPanel from './panels/NotesPanel'
@@ -17,6 +18,9 @@ export default function SidePanel({
   chat,
   onSendChat,
   connected,
+  code,
+  language,
+  lastOutput,
 }) {
   const [active, setActive] = useState('question')
   const [lastSeenId, setLastSeenId] = useState(null)
@@ -32,6 +36,7 @@ export default function SidePanel({
   const tabs = [
     { id: 'question', label: 'Question', icon: ClipboardList },
     { id: 'chat', label: 'Chat', icon: MessageSquare, badge: active === 'chat' ? 0 : unread },
+    { id: 'ai', label: 'AI', icon: Sparkles },
     ...(me.is_host ? [{ id: 'notes', label: 'Notes', icon: FileText }] : []),
     { id: 'feedback', label: 'Feedback', icon: Star },
   ]
@@ -75,6 +80,16 @@ export default function SidePanel({
           />
         )}
         {active === 'chat' && <ChatPanel messages={chat} meId={me.id} onSend={onSendChat} disabled={!connected} />}
+        {active === 'ai' && (
+          <AiPanel
+            token={token}
+            language={language}
+            code={code}
+            question={question}
+            lastOutput={lastOutput}
+            hasProblem={Boolean(problem)}
+          />
+        )}
         {active === 'notes' && me.is_host && <NotesPanel roomId={roomId} token={token} />}
         {active === 'feedback' && <FeedbackPanel roomId={roomId} token={token} meId={me.id} />}
       </div>

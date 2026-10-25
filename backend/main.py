@@ -10,7 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 import models  # noqa: F401  (imported so the tables are registered on Base)
 from config import settings
 from database import Base, engine, run_lightweight_migrations
-from routers import auth_routes, progress, rooms, run, ws
+from routers import ai, auth_routes, progress, replay, rooms, run, ws
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -34,6 +34,8 @@ app.add_middleware(
 app.include_router(auth_routes.router)
 app.include_router(rooms.router)
 app.include_router(progress.router)
+app.include_router(replay.router)
+app.include_router(ai.router)
 app.include_router(run.router)
 app.include_router(ws.router)
 

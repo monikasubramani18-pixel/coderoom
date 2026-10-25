@@ -14,6 +14,9 @@ Real-time collaborative coding and mock-interview platform. Create a room, invit
 - **Practice library**: 20 curated problems (plus a problem of the day) (arrays, strings, stacks, DP, graphs and more) with statements, examples, hints and a worked approach. Each problem runs against test cases in the same sandbox and returns a verdict per case (passed, wrong answer, error, time limit)
 - **Practice mode and progress**: start any problem as a private room and invite a friend to solve it together. The dashboard tracks problems solved, test runs and a day streak
 - **Motivation**: activity heatmap, day streak and a leaderboard of top problem solvers
+- **Code Story**: an Instagram-style animated story of your practice (problems solved, effort, favourite topic, coding personality such as Night Owl or Steady Streaker, level) ending with a downloadable 1080x1350 share card and a ready-made caption
+- **AI assistant** (optional): review your code, explain the last error, give a hint without spoilers, or suggest follow-up interview questions. Needs an `ANTHROPIC_API_KEY`; it stays off without one
+- **Session replay and insights**: every session is recorded as a timeline (code snapshots, runs, test results, joins). Replay it like a video with a speed control, changed-line highlighting and long pauses skipped, plus insights such as time to first run and the longest pause
 - **Video and attention**: opt-in peer-to-peer video (WebRTC) with a mute button, plus on-device attention detection (face and gaze, tab switches, inactivity). Others see a status such as Focused, Looking away or Left the tab, never images
 - **Collaboration awareness**: toast notifications (joins, leaves, teammate runs and test results, timer end, reconnects), unread chat badge and a per-room run history
 - **Command palette**: `Ctrl/Cmd + K` for quick actions (run, tests, switch language, theme, export, timer)
@@ -77,6 +80,8 @@ Generate a secret key with `python -c "import secrets; print(secrets.token_hex(3
 | `DATABASE_URL` | backend | e.g. `postgresql+psycopg://user:password@localhost:5432/coderoom` |
 | `SECRET_KEY` | backend | Signing key for JWTs |
 | `FRONTEND_URLS` | backend | Comma-separated allowed CORS origins |
+| `ANTHROPIC_API_KEY` | backend | Optional. Enables the AI assistant |
+| `ANTHROPIC_MODEL` | backend | Optional. Model used by the AI assistant |
 | `VITE_API_URL` | frontend | Backend base URL (default `http://localhost:8000`) |
 
 ## Testing
@@ -107,7 +112,9 @@ Close codes: `4401` unauthorized, `4404` room not found.
 ## Security notes
 
 - Untrusted code never touches the host: it is streamed over stdin into a container with no network, a read-only root filesystem, a non-root user and resource limits. For production-grade isolation consider gVisor or Firecracker.
-- `/run`, `/login` and `/register` are rate limited.
+- `/run`, `/login`, `/register` and the AI endpoints are rate limited.
+- AI requests send the code and problem text to Anthropic's API. The API key stays on the server and is never exposed to the browser.
+- Session replay keeps code snapshots (capped at 3,000 events per room) and is visible only to the host and participants.
 - Passwords are hashed with bcrypt; secrets live in `.env`, which is git-ignored.
 - The WebSocket token is passed as a query parameter because browsers cannot set headers on WebSockets; short-lived tickets would be the production hardening.
 

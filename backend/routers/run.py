@@ -8,6 +8,7 @@ import models
 import sandbox
 from auth import get_current_user
 from database import get_db
+from events import record_event
 from ratelimit import RateLimiter
 from realtime import hub
 from schemas import RunRequest, RunTestsRequest
@@ -38,6 +39,8 @@ async def run(payload: RunRequest, user: models.User = Depends(get_current_user)
 
     # Share the result with everyone in the room, but only if the caller is actually in it.
     if payload.room_id and hub.has_user(payload.room_id, user.id):
+        summary = {"ok": result.ok, "duration_ms": result.duration_ms, "language": payload.language, "output": result.output[:300]}
+        await run_in_threadpool(record_event, payload.room_id, "run", summary, user.id)
         await hub.broadcast(payload.room_id, {"type": "run_result", "result": response})
     return response
 
@@ -81,5 +84,7 @@ async def run_tests(
         db.commit()
 
     if payload.room_id and hub.has_user(payload.room_id, user.id):
+        summary = {"problem_id": payload.problem_id, "passed": passed, "total": len(results), "language": payload.language}
+        await run_in_threadpool(record_event, payload.room_id, "tests", summary, user.id)
         await hub.broadcast(payload.room_id, {"type": "tests_result", "result": response})
     return response

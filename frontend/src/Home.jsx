@@ -1,17 +1,19 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowRight, CalendarDays, Check, Flame, FolderOpen, Link2, LogOut, Plus, Target, Trash2, Trophy } from 'lucide-react'
+import { ArrowRight, CalendarDays, Check, ChevronRight, Flame, FolderOpen, History, Link2, LogOut, Plus, Sparkles, Target, Trash2, Trophy } from 'lucide-react'
 import { api } from './api'
 import ActivityHeatmap from './components/ActivityHeatmap'
 import Avatar from './components/Avatar'
 import Brand from './components/Brand'
 import ConfirmDialog from './components/ConfirmDialog'
 import Leaderboard from './components/Leaderboard'
+import StoryViewer from './components/StoryViewer'
 import ProblemList from './components/ProblemList'
 import ThemeToggle from './components/ThemeToggle'
 import TopicProgress from './components/TopicProgress'
 import { timeAgo } from './lib/format'
 import { languageMeta } from './lib/languages'
 import { DIFFICULTY_STYLES, PROBLEMS, buildQuestionText, computeStreak } from './lib/problems'
+import { computeStory } from './lib/story'
 import { card, ghostButton, iconButton, inputClass, primaryButton } from './lib/ui'
 import useDocumentTitle from './lib/useDocumentTitle'
 
@@ -61,6 +63,7 @@ export default function Home({ user, token, onLogout }) {
   const [startingProblem, setStartingProblem] = useState(false)
   const [roomToDelete, setRoomToDelete] = useState(null)
   const [copiedRoomId, setCopiedRoomId] = useState(null)
+  const [storyOpen, setStoryOpen] = useState(false)
 
   useEffect(() => {
     api('/rooms', { token })
@@ -83,6 +86,8 @@ export default function Home({ user, token, onLogout }) {
     }),
     [progress]
   )
+
+  const story = useMemo(() => computeStory({ progress, rooms: rooms ?? [] }), [progress, rooms])
 
   // Same problem for everyone on a given (UTC) day.
   const dailyProblem = useMemo(() => PROBLEMS[Math.floor(Date.now() / 86_400_000) % PROBLEMS.length], [])
@@ -175,6 +180,25 @@ export default function Home({ user, token, onLogout }) {
             tone="text-danger"
           />
         </section>
+
+        <button
+          onClick={() => setStoryOpen(true)}
+          className="group flex w-full items-center gap-4 rounded-lg p-5 text-left text-white shadow-lg transition hover:brightness-110"
+          style={{ background: 'linear-gradient(135deg,#4f46e5,#9333ea 55%,#ec4899)' }}
+        >
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white/20">
+            <Sparkles className="h-6 w-6" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-lg font-bold">See your Code Story</span>
+            <span className="block text-sm text-white/85">
+              {story.hasActivity
+                ? `${story.personality.emoji} ${story.personality.title} · Level ${story.level.name}. Tap to watch, then share your card.`
+                : 'Run your first tests to unlock your personality, level and a shareable card.'}
+            </span>
+          </span>
+          <ChevronRight className="h-5 w-5 shrink-0 transition group-hover:translate-x-1" />
+        </button>
 
         <section className={`${card} flex flex-wrap items-center gap-4 p-5`} aria-label="Problem of the day">
           <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-raised text-brand">
@@ -286,6 +310,14 @@ export default function Home({ user, token, onLogout }) {
                     <button onClick={() => goToRoom(room.id)} className={ghostButton}>
                       Open
                     </button>
+                    <a
+                      href={`/?replay=${room.id}`}
+                      className={iconButton}
+                      aria-label={`Replay session of ${room.title}`}
+                      title="Replay session"
+                    >
+                      <History className="h-4 w-4" />
+                    </a>
                     <button
                       onClick={() => copyRoomLink(room)}
                       className={iconButton}
@@ -324,6 +356,8 @@ export default function Home({ user, token, onLogout }) {
           />
         </section>
       </main>
+
+      {storyOpen && <StoryViewer story={story} name={user.username} onClose={() => setStoryOpen(false)} />}
 
       <ConfirmDialog
         open={Boolean(roomToDelete)}

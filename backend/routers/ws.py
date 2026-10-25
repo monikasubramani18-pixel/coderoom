@@ -17,10 +17,12 @@ import time
 import uuid
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+from starlette.concurrency import run_in_threadpool
 
 import models
 from auth import get_user_from_token
 from database import SessionLocal
+from events import record_event
 from realtime import MAX_CHAT_HISTORY, Peer, RoomState, hub
 from sandbox import MAX_CODE_CHARS, SUPPORTED_LANGUAGES
 
@@ -51,6 +53,7 @@ async def handle_message(room_id: str, state: RoomState, peer: Peer, message: di
         state.code, state.language = code, language
         await hub.broadcast(room_id, {"type": "code", "code": code, "language": language}, exclude=peer.ws)
         hub.schedule_save(room_id)
+        await hub.snapshot_code(room_id, peer.user_id)
 
     elif kind == "chat":
         text = message.get("text")
@@ -123,6 +126,7 @@ async def handle_message(room_id: str, state: RoomState, peer: Peer, message: di
         if not valid_id or not isinstance(question, str) or len(question) > MAX_QUESTION_CHARS:
             return
         state.problem_id, state.question = problem_id, question
+        await run_in_threadpool(record_event, room_id, "problem", {"problem_id": problem_id}, peer.user_id)
         await hub.broadcast(
             room_id, {"type": "problem", "problem_id": problem_id, "question": question}, exclude=peer.ws
         )
@@ -178,6 +182,9 @@ async def room_socket(websocket: WebSocket, room_id: str, token: str | None = Qu
     state = hub.states.setdefault(room_id, RoomState(**room_data))
     peer = Peer(ws=websocket, user_id=user_id, username=username)
     hub.add_peer(room_id, peer)
+    if len(hub.peers[room_id]) == 1:  # first person in: the starting code is the replay baseline
+        await hub.snapshot_code(room_id, force=True)
+    await run_in_threadpool(record_event, room_id, "join", {"username": username}, user_id)
 
     try:
         await websocket.send_text(
@@ -216,3 +223,4 @@ async def room_socket(websocket: WebSocket, room_id: str, token: str | None = Qu
         pass
     finally:
         await hub.remove_peer(room_id, peer)
+        await run_in_threadpool(record_event, room_id, "leave", {"username": username}, user_id)

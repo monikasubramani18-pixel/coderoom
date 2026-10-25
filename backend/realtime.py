@@ -7,6 +7,7 @@ import asyncio
 import json
 import logging
 import time
+import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 
@@ -15,10 +16,12 @@ from starlette.concurrency import run_in_threadpool
 
 import models
 from database import SessionLocal
+from events import MAX_SNAPSHOT_CHARS, record_event
 
 logger = logging.getLogger(__name__)
 
 SAVE_DELAY_SECONDS = 1.5
+SNAPSHOT_MIN_INTERVAL_SECONDS = 3.0  # at most one code snapshot per room every few seconds while typing
 MAX_CHAT_HISTORY = 50
 DEFAULT_TIMER_SECONDS = 45 * 60
 
@@ -108,6 +111,7 @@ class RoomHub:
         self.peers: dict[str, list[Peer]] = defaultdict(list)
         self.states: dict[str, RoomState] = {}
         self._save_tasks: dict[str, asyncio.Task] = {}
+        self._last_snapshot: dict[str, tuple[float, str, str]] = {}  # room -> (time, code, language)
 
     # ----- queries -----
     def is_active(self, room_id: str) -> bool:
@@ -179,8 +183,26 @@ class RoomHub:
         state = self.states.get(room_id)
         if state:
             await run_in_threadpool(persist_room, room_id, state)
+            await self.snapshot_code(room_id, force=True)
         if not self.peers.get(room_id):  # nobody rejoined while saving
             self.states.pop(room_id, None)
+            self._last_snapshot.pop(room_id, None)
+
+    # ----- session replay -----
+    async def snapshot_code(self, room_id: str, user_id: int | None = None, force: bool = False) -> None:
+        """Record the current code for replay. Unchanged code is skipped; typing is throttled unless `force`."""
+        state = self.states.get(room_id)
+        if state is None or len(state.code) > MAX_SNAPSHOT_CHARS:
+            return
+        last = self._last_snapshot.get(room_id)
+        if last and last[1] == state.code and last[2] == state.language:
+            return
+        now = time.monotonic()
+        if not force and last and now - last[0] < SNAPSHOT_MIN_INTERVAL_SECONDS:
+            return
+        self._last_snapshot[room_id] = (now, state.code, state.language)
+        payload = {"code": state.code, "language": state.language}
+        await run_in_threadpool(record_event, room_id, "code", payload, user_id)
 
     # ----- debounced persistence -----
     def schedule_save(self, room_id: str) -> None:
@@ -194,6 +216,7 @@ class RoomHub:
         state = self.states.get(room_id)
         if state:
             await run_in_threadpool(persist_room, room_id, state)
+            await self.snapshot_code(room_id, force=True)  # typing paused: capture where the burst ended
 
 
 hub = RoomHub()

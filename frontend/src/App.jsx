@@ -8,9 +8,12 @@ import { ThemeProvider } from './theme'
 
 // The room screen pulls in the Monaco editor, so load it only when needed.
 const Room = lazy(() => import('./Room'))
+const Replay = lazy(() => import('./Replay'))
 
 const TOKEN_KEY = 'token'
-const roomId = new URLSearchParams(window.location.search).get('room')
+const params = new URLSearchParams(window.location.search)
+const roomId = params.get('room')
+const replayId = params.get('replay')
 
 function LoadingScreen() {
   return <div className="flex h-full items-center justify-center bg-canvas text-muted">Loading...</div>
@@ -50,6 +53,13 @@ function Routes() {
 
   if (checking) return <LoadingScreen />
   if (!token || !user) return <AuthPage onAuth={handleAuth} />
+  if (replayId) {
+    return (
+      <Suspense fallback={<LoadingScreen />}>
+        <Replay roomId={replayId} token={token} />
+      </Suspense>
+    )
+  }
   if (roomId) {
     return (
       <Suspense fallback={<LoadingScreen />}>

@@ -594,6 +594,9 @@ export default function Room({ roomId, token, onSessionExpired }) {
           chat={chat}
           onSendChat={handleSendChat}
           connected={connected}
+          code={code}
+          language={language}
+          lastOutput={result?.output ?? ''}
         />
       </div>
 
