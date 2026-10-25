@@ -71,3 +71,31 @@ export function computeInsights(events) {
     participants: [...new Set(events.map((event) => event.user).filter(Boolean))],
   }
 }
+
+/**
+ * One band per person showing how their pulse changed during the session.
+ * `from`/`to` use the playback clock; `realMs` is real elapsed time, `totals` sums it per state.
+ */
+export function buildFlowBands(timeline) {
+  const last = timeline.length ? timeline[timeline.length - 1] : null
+  const byUser = new Map()
+  timeline
+    .filter((event) => event.kind === 'flow' && event.user)
+    .forEach((event) => byUser.set(event.user, [...(byUser.get(event.user) ?? []), event]))
+
+  return [...byUser.entries()]
+    .map(([user, events]) => {
+      const segments = []
+      const totals = {}
+      events.forEach((event, index) => {
+        const next = events[index + 1]
+        const state = event.data.state
+        if (!state) return // the person stopped sharing
+        const realMs = (next ? next.t : last.t) - event.t
+        segments.push({ state, from: event.at, to: next ? next.at : last.at, realMs })
+        totals[state] = (totals[state] || 0) + realMs
+      })
+      return { user, segments, totals }
+    })
+    .filter((band) => band.segments.length > 0)
+}

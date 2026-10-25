@@ -7,6 +7,7 @@ import CommandPalette from './components/CommandPalette'
 import Console from './components/Console'
 import EditorSettings from './components/EditorSettings'
 import ProblemPicker from './components/ProblemPicker'
+import PulseBar from './components/PulseBar'
 import RoomHeader from './components/RoomHeader'
 import SidePanel from './components/SidePanel'
 import { useToast } from './components/Toast'
@@ -17,6 +18,7 @@ import { LANGUAGES, TEMPLATES, languageMeta } from './lib/languages'
 import { buildQuestionText, getProblem } from './lib/problems'
 import { ghostButton, iconButton, primaryButton } from './lib/ui'
 import useAttention from './lib/useAttention'
+import useFlow from './lib/useFlow'
 import useDocumentTitle from './lib/useDocumentTitle'
 import useVideoCall from './lib/useVideoCall'
 import { useTheme } from './theme'
@@ -70,6 +72,8 @@ export default function Room({ roomId, token, onSessionExpired }) {
   const [copied, setCopied] = useState(false)
   const [consentOpen, setConsentOpen] = useState(false)
   const [shareAttention, setShareAttention] = useState(true)
+  const [shareFlow, setShareFlow] = useState(true)
+  const [flowSince, setFlowSince] = useState({}) // user id -> { state, since }
 
   const socketRef = useRef(null)
   const lastRemoteCode = useRef(null)
@@ -134,6 +138,28 @@ export default function Room({ roomId, token, onSessionExpired }) {
             .filter((u) => !before.has(u.id) && u.id !== meRef.current?.id)
             .forEach((u) => notify(`${u.username} joined the room`))
           previous.filter((u) => !after.has(u.id)).forEach((u) => notify(`${u.username} left the room`))
+
+          // Track how long everyone has been in their current pulse state, and nudge the host when someone needs help.
+          const flowBefore = new Map(previous.map((u) => [u.id, u.flow ?? null]))
+          const flowChanges = message.users.filter((u) => (u.flow ?? null) !== (flowBefore.get(u.id) ?? null))
+          if (flowChanges.length > 0) {
+            const changedAt = Date.now()
+            setFlowSince((current) => {
+              const next = { ...current }
+              flowChanges.forEach((u) => {
+                next[u.id] = { state: u.flow ?? null, since: changedAt }
+              })
+              return next
+            })
+            if (meRef.current?.is_host) {
+              flowChanges
+                .filter((u) => u.id !== meRef.current.id)
+                .forEach((u) => {
+                  if (u.flow === 'stuck') notify(`${u.username} seems stuck. A hint might help.`, 'warning')
+                  if (u.flow === 'solved') notify(`${u.username} passed all the tests!`, 'success')
+                })
+            }
+          }
           usersRef.current = message.users
           setUsers(message.users)
           break
@@ -259,12 +285,18 @@ export default function Room({ roomId, token, onSessionExpired }) {
     connected: isConnected,
     send,
   })
+  const flow = useFlow({ enabled: shareFlow, connected: isConnected, send })
 
   // ----- editor -----
-  const handleCodeChange = (value) => {
+  const handleCodeChange = (value, event) => {
     const next = value ?? ''
     if (next === lastRemoteCode.current) return // echo of a remote update
     lastRemoteCode.current = null
+    const changes = event?.changes ?? []
+    flow.recordEdit({
+      inserted: changes.reduce((sum, change) => sum + change.text.length, 0),
+      deleted: changes.reduce((sum, change) => sum + change.rangeLength, 0),
+    })
     setCode(next)
     send({ type: 'code', code: next, language })
   }
@@ -285,7 +317,9 @@ export default function Room({ roomId, token, onSessionExpired }) {
     setRunning(true)
     setRunError('')
     try {
-      setResult(await api('/run', { method: 'POST', token, body: { language, code, stdin, room_id: roomId } }))
+      const run = await api('/run', { method: 'POST', token, body: { language, code, stdin, room_id: roomId } })
+      setResult(run)
+      flow.recordRun(run.ok)
     } catch (error) {
       setRunError(error.message)
     } finally {
@@ -299,13 +333,13 @@ export default function Room({ roomId, token, onSessionExpired }) {
     setTestsError('')
     try {
       const cases = problem.tests.map(({ input, expected }) => ({ input, expected }))
-      setTestResult(
-        await api('/run/tests', {
-          method: 'POST',
-          token,
-          body: { language, code, cases, problem_id: problem.id, room_id: roomId },
-        })
-      )
+      const tests = await api('/run/tests', {
+        method: 'POST',
+        token,
+        body: { language, code, cases, problem_id: problem.id, room_id: roomId },
+      })
+      setTestResult(tests)
+      flow.recordTests(tests.passed, tests.total)
     } catch (error) {
       setTestsError(error.message)
     } finally {
@@ -533,6 +567,15 @@ export default function Room({ roomId, token, onSessionExpired }) {
               </button>
             </div>
           </div>
+
+          <PulseBar
+            users={users}
+            me={me}
+            flowSince={flowSince}
+            localState={flow.state}
+            shareFlow={shareFlow}
+            onShareFlowChange={setShareFlow}
+          />
 
           <VideoDock
             users={users}

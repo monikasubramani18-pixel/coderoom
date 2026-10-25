@@ -6,7 +6,8 @@ import Brand from './components/Brand'
 import ThemeToggle from './components/ThemeToggle'
 import { formatClock } from './lib/format'
 import { getProblem } from './lib/problems'
-import { buildTimeline, changedLines, computeInsights, durationOf, stateAt } from './lib/replay'
+import { FLOW_META } from './lib/flow'
+import { buildFlowBands, buildTimeline, changedLines, computeInsights, durationOf, stateAt } from './lib/replay'
 import { card, ghostButton, primaryButton } from './lib/ui'
 import useDocumentTitle from './lib/useDocumentTitle'
 import { useTheme } from './theme'
@@ -67,7 +68,8 @@ export default function Replay({ roomId, token }) {
   const insights = useMemo(() => computeInsights(data?.events ?? []), [data])
   const state = useMemo(() => stateAt(timeline, position), [timeline, position])
   const before = useMemo(() => stateAt(timeline, Math.max(0, position - 1500)).code, [timeline, position])
-  const marks = useMemo(() => timeline.filter((event) => event.kind !== 'code'), [timeline])
+  const marks = useMemo(() => timeline.filter((event) => event.kind !== 'code' && event.kind !== 'flow'), [timeline])
+  const bands = useMemo(() => buildFlowBands(timeline), [timeline])
 
   // Advance the playback clock.
   useEffect(() => {
@@ -194,6 +196,37 @@ export default function Replay({ roomId, token }) {
                     />
                   ))}
               </div>
+
+              {bands.length > 0 && duration > 0 && (
+                <div className="space-y-2 pt-1" aria-label="Pulse timeline">
+                  <p className="text-[11px] uppercase tracking-wide text-muted">Pulse</p>
+                  {bands.map((band) => (
+                    <div key={band.user} className="flex items-center gap-3">
+                      <span className="w-20 shrink-0 truncate text-xs text-ink">{band.user}</span>
+                      <div className="relative h-3 flex-1 overflow-hidden rounded-full bg-raised">
+                        {band.segments.map((segment, index) => (
+                          <span
+                            key={index}
+                            title={`${FLOW_META[segment.state].label}: ${formatClock(segment.realMs / 1000)}`}
+                            className="absolute inset-y-0"
+                            style={{
+                              left: `${(segment.from / duration) * 100}%`,
+                              width: `${Math.max(((segment.to - segment.from) / duration) * 100, 0.4)}%`,
+                              backgroundColor: FLOW_META[segment.state].color,
+                            }}
+                          />
+                        ))}
+                      </div>
+                      <span className="hidden w-40 shrink-0 text-right text-[11px] text-muted sm:block">
+                        {['flow', 'stuck']
+                          .filter((state) => band.totals[state])
+                          .map((state) => `${FLOW_META[state].label} ${formatClock(band.totals[state] / 1000)}`)
+                          .join(' · ')}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </main>
 

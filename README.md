@@ -14,6 +14,7 @@ Real-time collaborative coding and mock-interview platform. Create a room, invit
 - **Practice library**: 20 curated problems (plus a problem of the day) (arrays, strings, stacks, DP, graphs and more) with statements, examples, hints and a worked approach. Each problem runs against test cases in the same sandbox and returns a verdict per case (passed, wrong answer, error, time limit)
 - **Practice mode and progress**: start any problem as a private room and invite a friend to solve it together. The dashboard tracks problems solved, test runs and a day streak
 - **Motivation**: activity heatmap, day streak and a leaderboard of top problem solvers
+- **Coding Pulse**: a live read-out of how each person is working (In flow, Thinking, Debugging, Stuck, Solved it, Idle), worked out on their own device from typing rhythm, deletions and run results. The host gets a nudge when someone seems stuck, guests only ever see their own pulse, and the replay shows a pulse band per person (time in flow versus time stuck)
 - **Code Story**: an Instagram-style animated story of your practice (problems solved, effort, favourite topic, coding personality such as Night Owl or Steady Streaker, level) ending with a downloadable 1080x1350 share card and a ready-made caption
 - **AI assistant** (optional): review your code, explain the last error, give a hint without spoilers, or suggest follow-up interview questions. Needs an `ANTHROPIC_API_KEY`; it stays off without one
 - **Session replay and insights**: every session is recorded as a timeline (code snapshots, runs, test results, joins). Replay it like a video with a speed control, changed-line highlighting and long pauses skipped, plus insights such as time to first run and the longest pause
@@ -106,6 +107,7 @@ Close codes: `4401` unauthorized, `4404` room not found.
 - Video flows directly between browsers (WebRTC). The server only relays small signalling messages and is never in the media path; nothing is recorded.
 - Attention detection (MediaPipe Face Landmarker) runs inside the browser. Only a status label is sent, and users can stop sharing it at any time.
 - Browsers cannot truly correct eye gaze. For the closest thing to eye contact, keep the video strip near your webcam and look at the faces; the green ring shows who is looking at their screen.
+- The coding pulse is computed on the user's device from edit sizes and run results (never from the code text itself). Only the state label is sent, it is visible only to the host and to the person, and it can be switched off with "Share my pulse".
 - Attention signals are hints, not proof. Treat them as a conversation starter, not a verdict about a candidate.
 - Strict corporate networks may need a TURN server: set `VITE_ICE_SERVERS` (see `frontend/.env.example`).
 

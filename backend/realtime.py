@@ -90,6 +90,7 @@ class Peer:
     username: str
     camera: bool = False  # camera is on and the user opted in to video
     attention: str | None = None  # shared attention status, only while the camera is on
+    flow: str | None = None  # coding pulse (flow, thinking, debugging, stuck, ...), computed on the user's device
 
 
 def persist_room(room_id: str, state: RoomState) -> None:
@@ -120,7 +121,8 @@ class RoomHub:
     def has_user(self, room_id: str, user_id: int) -> bool:
         return any(peer.user_id == user_id for peer in self.peers.get(room_id, []))
 
-    def online_users(self, room_id: str) -> list[dict]:
+    def online_users(self, room_id: str, viewer_id: int | None = None) -> list[dict]:
+        """Who is in the room. With `viewer_id`, the coding pulse is shown only to the host and to the person themselves."""
         state = self.states.get(room_id)
         owner_id = state.owner_id if state else None
         users: dict[int, dict] = {}
@@ -133,9 +135,16 @@ class RoomHub:
                     "is_host": peer.user_id == owner_id,
                     "camera": peer.camera,
                     "attention": peer.attention if peer.camera else None,
+                    "flow": peer.flow,
                 }
             elif peer.camera and not entry["camera"]:
                 entry["camera"], entry["attention"] = True, peer.attention
+            if entry is not None and peer.flow and not entry["flow"]:
+                entry["flow"] = peer.flow
+        if viewer_id is not None and viewer_id != owner_id:
+            for entry in users.values():
+                if entry["id"] != viewer_id:
+                    entry["flow"] = None
         return list(users.values())
 
     # ----- messaging -----
@@ -161,7 +170,13 @@ class RoomHub:
                 logger.debug("Could not deliver message to %s", peer.username, exc_info=True)
 
     async def broadcast_presence(self, room_id: str) -> None:
-        await self.broadcast(room_id, {"type": "presence", "users": self.online_users(room_id)})
+        """Each person gets their own view of the presence list (the pulse is private to the host and the owner)."""
+        for peer in list(self.peers.get(room_id, [])):
+            message = {"type": "presence", "users": self.online_users(room_id, viewer_id=peer.user_id)}
+            try:
+                await peer.ws.send_text(json.dumps(message))
+            except Exception:  # the socket is closing; its own handler cleans up
+                logger.debug("Could not deliver presence to %s", peer.username, exc_info=True)
 
     # ----- lifecycle -----
     def add_peer(self, room_id: str, peer: Peer) -> None:

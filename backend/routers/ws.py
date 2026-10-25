@@ -10,6 +10,7 @@ Client -> server messages (JSON, `type` field):
     camera    {on}                            anyone, announces that video is on/off
     attention {status}                        anyone with the camera on; status is computed on the user's device
     rtc       {to, data}                      WebRTC signalling, relayed to one participant
+    flow      {state}                         anyone; coding pulse computed on the user's device (null = stop sharing)
 """
 import json
 import logging
@@ -40,6 +41,7 @@ MAX_PROBLEM_ID_CHARS = 40
 MAX_RTC_PAYLOAD_CHARS = 20_000
 RTC_KINDS = frozenset({"offer", "answer", "candidate"})
 ATTENTION_STATUSES = frozenset({"focused", "away", "no_face", "tab_hidden", "idle"})
+FLOW_STATES = frozenset({"flow", "thinking", "debugging", "stuck", "solved", "idle"})
 
 
 async def handle_message(room_id: str, state: RoomState, peer: Peer, message: dict) -> None:
@@ -93,6 +95,16 @@ async def handle_message(room_id: str, state: RoomState, peer: Peer, message: di
         peer.camera = on
         if not on:
             peer.attention = None
+        await hub.broadcast_presence(room_id)
+
+    elif kind == "flow":
+        state_name = message.get("state")
+        if state_name is not None and (not isinstance(state_name, str) or state_name not in FLOW_STATES):
+            return
+        if peer.flow == state_name:
+            return
+        peer.flow = state_name
+        await run_in_threadpool(record_event, room_id, "flow", {"state": state_name}, peer.user_id)
         await hub.broadcast_presence(room_id)
 
     elif kind == "attention":
@@ -203,7 +215,7 @@ async def room_socket(websocket: WebSocket, room_id: str, token: str | None = Qu
                     },
                     "chat": state.chat,
                     "timer": state.timer.snapshot(),
-                    "users": hub.online_users(room_id),
+                    "users": hub.online_users(room_id, viewer_id=user_id),
                 }
             )
         )
